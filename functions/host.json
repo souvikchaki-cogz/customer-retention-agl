@@ -1,0 +1,13 @@
+{
+  "version": "2.0",
+  "extensions": {
+    "queues": { "batchSize": 16, "newBatchThreshold": 8 },
+    "durableTask": { "hubName": "RetentionHub" }
+  },
+  "logging": {
+    "applicationInsights": {
+      "samplingSettings": { "isEnabled": true },
+      "enableLiveMetricsFilters": true
+    }
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "IsEncrypted": false,
+  "Values": {
+    "AzureWebJobsStorage": "UseDevelopmentStorage=true",
+    "FUNCTIONS_WORKER_RUNTIME": "python",
+    "REPLAY_QUEUE_NAME": "event-replay",
+    "APPINSIGHTS_INSTRUMENTATIONKEY": "<guid>",
+    "AGENT_VERSION": "v1",
+    "LEAD_SCORE_THRESHOLD": "0.7",
+    "AZSQL_SERVER": "myserver.database.windows.net",
+    "AZSQL_DB": "retentiondb",
+    "AZSQL_UID": "svc-retention",
+    "AZSQL_PWD": "<secret>",
+    "AZSQL_DRIVER": "{ODBC Driver 18 for SQL Server}",
+    "AZURE_OPENAI_ENDPOINT": "https://<your-aoai>.openai.azure.com/",
+    "AZURE_OPENAI_DEPLOYMENT": "<gpt-4o-mini-or-equivalent>",
+    "AZURE_OPENAI_API_KEY": "<key-or-use-AAD>"
+  }
+}
