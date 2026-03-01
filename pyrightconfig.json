@@ -1,0 +1,22 @@
+{
+  "include": [
+    "webapp",
+    "shared",
+    "batch"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".git",
+    ".venv"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "reportMissingImports": true,
+  "reportMissingTypeStubs": false,
+  "pythonVersion": "3.10",
+  "executionEnvironments": [
+    {
+      "root": "."
+    }
+  ]
+}

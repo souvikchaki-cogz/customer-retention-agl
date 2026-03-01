@@ -1,9 +1,8 @@
 import os, logging
 import azure.functions as func
-from ..shared.aoai_text_matcher import match_text_rules
+from ..shared import match_text_rules, load_active_ruleset
 from ..shared.guardrails import enforce_confidence_floors, substring_evidence_guard
 from ..shared.pii import scrub_text
-from ..shared.rules import load_active_ruleset
 
 # --- load rules once per worker (cold start)
 _RULESET, _RULESET_VERSION = load_active_ruleset() # returns (dict, "version")

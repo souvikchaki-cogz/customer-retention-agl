@@ -41,7 +41,9 @@ class SqlClient:
         with self._conn() as cn:
             cur = cn.cursor()
             cur.execute(sql, params or [])
-            cols = [c[0] for c in cur.description] if cur.description else []
+            if not cur.description:
+                return []
+            cols = [c[0] for c in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
 
     def execute(self, sql: str, params: List[Any] | None = None) -> int:

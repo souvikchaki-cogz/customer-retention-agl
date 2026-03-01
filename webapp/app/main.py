@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from shared.azure_openai_predict import get_triggers_via_azure_openai, PROMPT
+from shared import get_triggers_via_azure_openai, PROMPT
 from .db import fetch_existing_triggers, insert_trigger, delete_trigger
 from dotenv import load_dotenv
 

@@ -1,7 +1,7 @@
 """Triggers CRUD layer — thin wrapper over shared.sql_client for the webapp."""
 import logging
 from typing import List, Dict, Any
-from shared.sql_client import SqlClient
+from shared import SqlClient
 
 logger = logging.getLogger(__name__)
 

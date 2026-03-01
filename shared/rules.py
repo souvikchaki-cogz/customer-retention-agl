@@ -1,11 +1,14 @@
 """Ruleset loader (from SQL or local YAML) and event scorer."""
 import os
+import logging
 import json
 import math
 import yaml
 from datetime import datetime, timezone
 from .sql_client import SqlClient
 
+
+logger = logging.getLogger(__name__)
 
 def load_active_ruleset():
     use_sql = os.getenv("USE_SQL_RULES", "0") == "1"
@@ -21,8 +24,8 @@ def load_active_ruleset():
                 ruleset = yaml.safe_load(row["ruleset_yaml"])
                 ruleset["version"] = row["version"]
                 return ruleset
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning(f"Failed to load rules from SQL, falling back to local: {e}")
 
     path = os.path.join(os.path.dirname(__file__), "..", "sql", "sample_rules.yaml")
     with open(path, "r", encoding="utf-8") as f:

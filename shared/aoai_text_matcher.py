@@ -4,6 +4,7 @@ Used by: functions/activity_call_text_agent
 """
 import os
 import json
+import logging
 import time
 from typing import Dict, Any, List
 from openai import AzureOpenAI
@@ -13,14 +14,21 @@ endpoint = os.getenv("AZURE_OPENAI_API_ENDPOINT") or os.getenv("AZURE_OPENAI_END
 deployment = os.getenv("AZURE_OPENAI_DEPLOYMENTNAME") or os.getenv("AZURE_OPENAI_DEPLOYMENT")
 api_key = os.getenv("AZURE_OPENAI_API_KEY")
 
-token_provider = get_bearer_token_provider(
-    DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default"
-)
+logger = logging.getLogger(__name__)
 
-if api_key:
-    client = AzureOpenAI(azure_endpoint=endpoint, api_key=api_key, api_version="2025-01-01-preview")
-else:
-    client = AzureOpenAI(azure_endpoint=endpoint, azure_ad_token_provider=token_provider, api_version="2025-01-01-preview")
+_client = None
+
+def _get_client():
+    global _client
+    if _client:
+        return _client
+    
+    if api_key:
+        _client = AzureOpenAI(azure_endpoint=endpoint, api_key=api_key, api_version="2025-01-01-preview")
+    else:
+        token_provider = get_bearer_token_provider(DefaultAzureCredential(), "https://cognitiveservices.azure.com/.default")
+        _client = AzureOpenAI(azure_endpoint=endpoint, azure_ad_token_provider=token_provider, api_version="2025-01-01-preview")
+    return _client
 
 CONFIDENCE_FLOOR = float(os.getenv("CONFIDENCE_FLOOR", "0.60"))
 EVIDENCE_MIN_LEN = int(os.getenv("EVIDENCE_MIN_LEN", "4"))
@@ -41,6 +49,7 @@ def _build_catalog(ruleset: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 def match_text_rules(text: str, ruleset: Dict[str, Any]) -> Dict[str, Any]:
     start = time.time()
+    client = _get_client()
     catalog = _build_catalog(ruleset)
     allow_ids = {c["id"] for c in catalog}
 
@@ -65,7 +74,8 @@ def match_text_rules(text: str, ruleset: Dict[str, Any]) -> Dict[str, Any]:
         )
         content = resp.choices[0].message.content
         raw = json.loads(content)
-    except Exception:
+    except Exception as e:
+        logger.error(f"LLM matching failed: {e}")
         raw = {"rule_hits": []}
 
     cleaned = []
