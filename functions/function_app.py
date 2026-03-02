@@ -8,13 +8,13 @@ import azure.functions as func
 import azure.durable_functions as df
 from azure.storage.queue import QueueClient
 
-# Imports relative to the parent directory of 'functions'
-from ..shared.rules import load_active_ruleset, score_event
-from ..shared.logging_utils import metrics_client
-from ..shared.pii import scrub_text
-from ..shared.sql_client import SqlClient
-from ..shared import match_text_rules
-from ..shared.guardrails import enforce_confidence_floors, substring_evidence_guard
+# Imports relative to the project root for Azure deployment
+from shared.rules import load_active_ruleset, score_event
+from shared.logging_utils import metrics_client
+from shared.pii import scrub_text
+from shared.sql_client import SqlClient
+from shared import match_text_rules
+from shared.guardrails import enforce_confidence_floors, substring_evidence_guard
 
 # Define the durable function app
 app = df.DFApp(http_auth_level=func.AuthLevel.FUNCTION)
