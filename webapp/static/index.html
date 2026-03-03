@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Customer Retention System</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+  <header>
+    <h1>Customer Retention System</h1>
+    <p class="subtitle">Evaluate customers & predict churn triggers</p>
+  </header>
+  <main class="grid">
+    <section class="card" id="evaluate-card">
+      <h2>Workflow 1: Evaluation of a customer against existing triggers</h2>
+      <form id="evaluate-form">
+        <label>Customer ID
+          <input type="text" id="customer-id" required placeholder="e.g. CUST0001" />
+        </label>
+        <label>Note
+          <textarea id="note" rows="3" placeholder="Optional note"></textarea>
+        </label>
+        <button type="submit" id="evaluate-btn">Evaluate</button>
+      </form>
+      <div class="output" id="evaluate-output"></div>
+      <div id="evaluation-status" class="evaluation-status muted"></div>
+  <div id="evaluation-result" class="evaluation-result"></div>
+      <div class="existing-triggers" id="existing-triggers">
+        <h3 class="subheading">Triggers</h3>
+        <div id="existing-triggers-content" class="triggers-list muted">Loading...</div>
+      </div>
+    </section>
+
+    <section class="card" id="predict-card">
+      <h2>Workflow 2: Predicting new triggers</h2>
+      <button id="predict-btn">Predict Triggers</button>
+      <div class="output" id="predict-output"></div>
+    </section>
+  </main>
+  <footer>
+    <small>&copy; <span id="year"></span> Customer Retention System</small>
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -40,6 +40,7 @@ yarn-error.log*
 .env.production
 *.env
 !.env.example
+*.sh
 
 # ---- IDE / Editor / OS ----
 .vscode/
