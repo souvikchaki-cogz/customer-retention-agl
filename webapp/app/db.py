@@ -4,17 +4,25 @@ from typing import List, Dict, Any
 import pyodbc
 import yaml
 from datetime import datetime
+from shared.config import (
+    AZSQL_SERVER,
+    AZSQL_DB,
+    AZSQL_UID,
+    AZSQL_PWD,
+    AZSQL_DRIVER,
+    AZSQL_USE_ENTRA,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _get_sql_config() -> Dict[str, str]:
     return {
-        "server": os.getenv("AZURE_SQL_SERVER", ""),  # e.g. myserver.database.windows.net
-        "database": os.getenv("AZURE_SQL_DATABASE", ""),
-        "username": os.getenv("AZURE_SQL_USERNAME", ""),
-        "password": os.getenv("AZURE_SQL_PASSWORD", ""),
-        "driver": os.getenv("AZURE_SQL_DRIVER", "ODBC Driver 18 for SQL Server"),
+        "server": AZSQL_SERVER,
+        "database": AZSQL_DB,
+        "username": AZSQL_UID,
+        "password": AZSQL_PWD,
+        "driver": AZSQL_DRIVER,
         # Hard-coded table name per request (schema-qualified)
         "table": "dbo.Triggers",
     }
@@ -24,8 +32,8 @@ def _build_conn_str(cfg: Dict[str, str]) -> str:
     """Builds a pyodbc connection string from config, supporting Entra/Managed Identity."""
     base = f'DRIVER={{{cfg["driver"]}}};SERVER={cfg["server"]};DATABASE={cfg["database"]};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;'
 
-    # If AZSQL_USE_ENTRA=1 is set, use Managed Identity. Otherwise, fall back to SQL auth.
-    if os.getenv("AZSQL_USE_ENTRA") == "1":
+    # Use shared config for Entra ID
+    if AZSQL_USE_ENTRA == "1":
         return f"{base}Authentication=ActiveDirectoryMsi;"
     else:
         return f'{base}UID={cfg["username"]};PWD={cfg["password"]};'
@@ -37,8 +45,8 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
     hardcoded customer profile rules.
     """
     cfg = _get_sql_config()
-    use_entra = os.getenv("AZSQL_USE_ENTRA") == "1"
-    creds_ok = use_entra or all([cfg["username"], cfg["password"]])
+    use_entra = AZSQL_USE_ENTRA == "1"
+    creds_ok = use_entra or all([cfg["username"], cfg["password"]]) # username/pwd can be empty for Entra
     if not all([cfg["server"], cfg["database"]]) or not creds_ok:
         logger.info("Azure SQL config incomplete; returning empty trigger list")
         return []
@@ -163,8 +171,8 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
         return max_id
 
     cfg = _get_sql_config()
-    use_entra = os.getenv("AZSQL_USE_ENTRA") == "1"
-    creds_ok = use_entra or all([cfg["username"], cfg["password"]])
+    use_entra = AZSQL_USE_ENTRA == "1"
+    creds_ok = use_entra or all([cfg["username"], cfg["password"]]) # username/pwd can be empty for Entra
     if not all([cfg["server"], cfg["database"]]) or not creds_ok:
         logger.error("Azure SQL config incomplete; cannot update rules_library")
         return False
@@ -204,7 +212,7 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
                     logger.warning("No existing ruleset rows found; attempting to bootstrap from sample_rules.yaml")
                     # Bootstrap from local sample if available
                     try:
-                        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+                        root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
                         sample_path = os.path.join(root_dir, "sample_rules.yaml")
                         with open(sample_path, "r", encoding="utf-8") as f:
                             ruleset_yaml_str = f.read()
@@ -293,8 +301,8 @@ def insert_trigger(phrase: str, severity: str) -> bool:
     Returns True on success, False on any failure (including missing config / driver).
     """
     cfg = _get_sql_config()
-    use_entra = os.getenv("AZSQL_USE_ENTRA") == "1"
-    creds_ok = use_entra or all([cfg["username"], cfg["password"]])
+    use_entra = AZSQL_USE_ENTRA == "1"
+    creds_ok = use_entra or all([cfg["username"], cfg["password"]]) # username/pwd can be empty for Entra
     if not all([cfg["server"], cfg["database"]]) or not creds_ok:
         logger.info("Azure SQL config incomplete; cannot insert trigger")
         return False
@@ -317,8 +325,8 @@ def insert_trigger(phrase: str, severity: str) -> bool:
 def delete_trigger(trigger_id: int) -> bool:
     """Delete a trigger by id. Returns True if a row was deleted."""
     cfg = _get_sql_config()
-    use_entra = os.getenv("AZSQL_USE_ENTRA") == "1"
-    creds_ok = use_entra or all([cfg["username"], cfg["password"]])
+    use_entra = AZSQL_USE_ENTRA == "1"
+    creds_ok = use_entra or all([cfg["username"], cfg["password"]]) # username/pwd can be empty for Entra
     if not all([cfg["server"], cfg["database"]]) or not creds_ok:
         logger.info("Azure SQL config incomplete; cannot delete trigger")
         return False
