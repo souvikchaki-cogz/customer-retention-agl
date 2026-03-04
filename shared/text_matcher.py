@@ -1,15 +1,15 @@
 """Azure OpenAI text matcher using Azure OpenAI Service."""
-import os
 import json
 import logging
 import time
 from typing import Dict, Any, List
 
 from .azure_openai import get_openai_client
-
-
-CONFIDENCE_FLOOR = float(os.getenv("CONFIDENCE_FLOOR", "0.60"))
-EVIDENCE_MIN_LEN = int(os.getenv("EVIDENCE_MIN_LEN", "4"))
+from shared.config import (
+    CONFIDENCE_FLOOR,
+    EVIDENCE_MIN_LEN,
+    AZURE_OPENAI_DEPLOYMENT
+)
 
 def _build_catalog(ruleset: Dict[str, Any]) -> List[Dict[str, Any]]:
     cat=[]
@@ -29,7 +29,7 @@ def match_text_rules(text: str, ruleset: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         client = get_openai_client()
-        deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        deployment = AZURE_OPENAI_DEPLOYMENT
     except (ValueError, Exception) as e:
         logging.error("AzureOpenAI client could not be initialized (%s). Cannot match text rules.", e)
         return {"rule_hits": [], "error": "OpenAI client could not be initialized."}

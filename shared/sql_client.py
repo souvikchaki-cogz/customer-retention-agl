@@ -1,25 +1,29 @@
 """SQL Client for Azure SQL Database interactions."""
-import os
 import logging
-
 from typing import Any, List, Dict, Iterable
 
 import pyodbc
 import pandas as pd
-
+from shared.config import (
+    AZSQL_SERVER,
+    AZSQL_DB,
+    AZSQL_UID,
+    AZSQL_PWD,
+    AZSQL_DRIVER,
+    AZSQL_USE_ENTRA,
+)
 
 class SqlClient:
     def __init__(self):
-        self.server = os.getenv("AZSQL_SERVER")  # e.g. myserver.database.windows.net
-        self.db = os.getenv("AZSQL_DB")
-        self.uid = os.getenv("AZSQL_UID")
-        self.pwd = os.getenv("AZSQL_PWD")
-        self.driver = os.getenv("AZURE_SQL_DRIVER", "{ODBC Driver 18 for SQL Server}")
-        self.use_entra = os.getenv("AZSQL_USE_ENTRA", "0") == "1"
+        self.server = AZSQL_SERVER  # unified config value
+        self.db = AZSQL_DB
+        self.uid = AZSQL_UID
+        self.pwd = AZSQL_PWD
+        self.driver = AZSQL_DRIVER if AZSQL_DRIVER else "{ODBC Driver 18 for SQL Server}"
+        self.use_entra = AZSQL_USE_ENTRA == "1" if isinstance(AZSQL_USE_ENTRA, str) else bool(AZSQL_USE_ENTRA)
 
     def _conn(self):
         try:
-            # Log connection attempt without password
             logging.info("Attempting to connect to database: %s on server %s", self.db, self.server)
             return pyodbc.connect(
                 f"DRIVER={self.driver};SERVER={self.server};DATABASE={self.db};UID={self.uid};PWD={self.pwd};"
