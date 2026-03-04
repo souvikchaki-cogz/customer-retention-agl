@@ -7,20 +7,24 @@ class EvaluateRequest(BaseModel):
 
 class EvaluateResponse(BaseModel):
     message: str = "Evaluation Triggered"
-    customer_id: Optional[str] = None
+    customer_id: str
     instance_id: Optional[str] = None
     status_query_url: Optional[str] = None
     runtime_status: Optional[str] = None
     progress: Optional[int] = None
     status: Optional[str] = None
 
+class Metric(BaseModel):
+    value: float
+    explanation: str
+
 class TriggerStat(BaseModel):
     description: str
     example_phrases: str
     narrative_explanation: str
-    support: float
-    lift: float
-    odds_ratio: float
+    support: Metric
+    lift: Metric
+    odds_ratio: Metric
     p_value: float
     fdr: float
 

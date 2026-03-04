@@ -18,7 +18,7 @@ def load_active_ruleset():
     If USE_SQL_RULES is '1', it attempts to load the latest ACTIVE ruleset from SQL.
     Otherwise, falls back to local sample_rules.yaml file.
     """
-    use_sql = USE_SQL_RULES == "1" if isinstance(USE_SQL_RULES, str) else bool(USE_SQL_RULES)
+    use_sql = USE_SQL_RULES == "1"
     if use_sql:
         try:
             logging.info("Attempting to load ruleset from SQL database...")

@@ -40,6 +40,20 @@ class SqlClient:
             logging.error("Database connection failed: %s", ex)
             raise
 
+    def execute(self, sql: str, params: List[Any] = None) -> int:
+        logging.info("Executing execute: %s...", sql[:100])
+        try:
+            with self._conn() as cn:
+                cur = cn.cursor()
+                cur.execute(sql, params or [])
+                rowcount = cur.rowcount
+                cn.commit()
+                logging.info("Executed statement successfully. Rows affected: %d", rowcount)
+                return rowcount
+        except Exception as e:
+            logging.error("Error in execute: %s", e)
+            raise
+
     def fetch_one(self, sql: str, params: List[Any] = None) -> Dict[str, Any] | None:
         logging.info("Executing fetch_one: %s...", sql[:100])
         try:
