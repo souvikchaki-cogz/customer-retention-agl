@@ -3,11 +3,13 @@ This script uses Azure OpenAI to generate synthetic customer retention triggers 
 as candidates in the discovery_cards table for review and approval.
 """
 import json
-import os
-from openai import AzureOpenAI
 import yaml
 from shared.sql_client import SqlClient
 from shared.discovery import generate_triggers
+from shared.config import LOG_LEVEL  # Optionally use logging config here
+
+import logging
+logging.basicConfig(level=LOG_LEVEL if LOG_LEVEL else "INFO")
 
 def write_discovery_cards(sql_client: SqlClient, triggers: list):
     """
@@ -30,13 +32,13 @@ def write_discovery_cards(sql_client: SqlClient, triggers: list):
             float(trigger.get("fdr", 0.0)),
             examples_json
         ])
-    print(f"Successfully inserted {len(triggers)} new triggers into discovery_cards.")
+    logging.info(f"Successfully inserted {len(triggers)} new triggers into discovery_cards.")
 
 def main():
     """
     Main function to run the discovery workflow.
     """
-    print("Starting synthetic trigger generation workflow...")
+    logging.info("Starting synthetic trigger generation workflow...")
     sql_client = SqlClient()
     
     # Get existing rules to avoid duplicates
@@ -48,22 +50,22 @@ def main():
             existing_rules = yaml.safe_load(current_ruleset_result['ruleset_yaml']) or {}
             existing_phrases = list(existing_rules.get("text_rules", {}).keys())
         except (yaml.YAMLError, KeyError) as e:
-            print(f"Error parsing existing rules: {e}")
+            logging.error(f"Error parsing existing rules: {e}")
 
     # Generate synthetic triggers
-    print(f"Generating new triggers, excluding {len(existing_phrases)} existing phrases.")
+    logging.info(f"Generating new triggers, excluding {len(existing_phrases)} existing phrases.")
     new_triggers = generate_triggers(exclude_phrases=existing_phrases)
 
     if not new_triggers:
-        print("No new triggers were generated.")
+        logging.warning("No new triggers were generated.")
         return
 
-    print(f"Generated {len(new_triggers)} new triggers to be reviewed.")
+    logging.info(f"Generated {len(new_triggers)} new triggers to be reviewed.")
 
     # Write the new triggers to the discovery_cards table for review
     write_discovery_cards(sql_client, new_triggers)
 
-    print("Discovery workflow completed. New triggers are ready for review in the discovery_cards table.")
+    logging.info("Discovery workflow completed. New triggers are ready for review in the discovery_cards table.")
 
 if __name__ == "__main__":
     main()

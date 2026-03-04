@@ -1,21 +1,24 @@
 import logging
-import os
 from typing import Any, Dict
 import httpx
+import os
 from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from shared.discovery import generate_triggers, PROMPT
-from .db import fetch_existing_triggers, delete_trigger,update_rules_library_with_new_trigger
+from .db import fetch_existing_triggers, delete_trigger, update_rules_library_with_new_trigger
 from dotenv import load_dotenv
+
+# Import all config/environment variables from one place
+from shared.config import (
+    LOG_LEVEL, FUNCTION_START_URL, FUNCTION_BASE_URL, FUNCTION_CODE
+)
 
 # Load environment variables from a .env file if present. This is idempotent and safe.
 load_dotenv()
 
-# Logging configuration (executed once on import)
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
     level=LOG_LEVEL,
     format="%(asctime)s %(levelname)s %(name)s - %(message)s",
@@ -25,7 +28,6 @@ logger.debug("Logging configured with level %s", LOG_LEVEL)
 
 app = FastAPI(title="Customer Retention System API")
 
-# In-memory mapping of Durable Function instance id -> statusQuery URL
 INSTANCE_STATUS_URLS: dict[str, str] = {}
 
 app.add_middleware(
@@ -36,7 +38,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve static assets (new simplified static frontend)
 STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "static"))
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR, html=False), name="static")
@@ -108,10 +109,6 @@ class DeleteTriggerResponse(BaseModel):
 async def health():
     return {"status": "ok"}
 
-FUNCTION_START_URL = os.getenv("FUNCTION_START_URL")  # full URL including code OR
-FUNCTION_BASE_URL = os.getenv("FUNCTION_BASE_URL", "http://imb-customer-retention.azurewebsites.net")
-FUNCTION_CODE = os.getenv("FUNCTION_CODE")  # if using base + code
-
 async def _call_function_start(customer_id: str, note: str) -> Dict[str, Any]:
     if FUNCTION_START_URL:
         url = FUNCTION_START_URL
@@ -119,7 +116,6 @@ async def _call_function_start(customer_id: str, note: str) -> Dict[str, Any]:
         if not FUNCTION_CODE:
             raise RuntimeError("FUNCTION_CODE env var required when FUNCTION_START_URL not provided")
         url = f"{FUNCTION_BASE_URL}/api/http_start_single_analysis?code={FUNCTION_CODE}"
-    # Azure Function expects keys: customer_id and text (not 'note')
     payload = {"customer_id": customer_id, "text": note}
     logger.debug("Calling Azure Function start URL=%s payload(customer_id,text)=%s", url, payload)
     async with httpx.AsyncClient(timeout=30) as client:
@@ -160,7 +156,6 @@ async def evaluate(req: EvaluateRequest):
         except Exception:
             logger.debug("Initial status poll failed; returning start metadata only")
 
-    # Store mapping so frontend only calls internal status endpoint
     if instance_id and status_query_url:
         INSTANCE_STATUS_URLS[instance_id] = status_query_url
 
@@ -207,7 +202,6 @@ async def predict():
     try:
         logger.debug("Predict endpoint invoked")
         structured_raw = generate_triggers(prompt=PROMPT)
-        # Convert dicts to TriggerStat models explicitly (validation)
         structured_models = [TriggerStat(**item) for item in structured_raw]
         return PredictResponse(triggers=structured_models)
     except Exception as e:
@@ -224,16 +218,12 @@ async def get_existing_triggers(limit: int = 25):
         logger.exception("Failed to fetch existing triggers")
         raise HTTPException(status_code=500, detail=f"Failed to fetch triggers: {e}")
 
-
 def _derive_severity(support: float, lift: float, odds_ratio: float, p_value: float, fdr: float) -> str:
-    """Naive severity derivation based on synthetic stats."""
-    # Example heuristics: prioritize statistical strength & effect size
     if p_value < 0.01 and fdr < 0.02 and (lift >= 2 or odds_ratio >= 3):
         return 'HIGH'
     if p_value < 0.05 and (lift >= 1.6 or odds_ratio >= 2):
         return 'MEDIUM'
     return 'LOW'
-
 
 def _build_explanation(req: ApproveTriggerRequest, severity: str) -> str:
     return (
@@ -241,42 +231,35 @@ def _build_explanation(req: ApproveTriggerRequest, severity: str) -> str:
         f"lift={req.lift:.2f}, odds_ratio={req.odds_ratio:.2f}, p={req.p_value:.3f}, fdr={req.fdr:.3f}."
     )
 
-
 @app.post('/api/triggers/approve', response_model=ApproveTriggerResponse)
 async def approve_trigger(req: ApproveTriggerRequest):
     try:
-        # The severity and explanation are still relevant for the response,
-        # but the actual insertion logic is now handled by update_rules_library_with_new_trigger
         severity = _derive_severity(req.support, req.lift, req.odds_ratio, req.p_value, req.fdr)
         explanation = _build_explanation(req, severity)
-        
         inserted = update_rules_library_with_new_trigger(
             phrase=req.phrase,
             example_phrases=req.example_phrases,
             odds_ratio=req.odds_ratio
         )
-        
         return ApproveTriggerResponse(
             phrase=req.phrase,
-            severity=severity, # This severity is derived for the response, not used in rules_library
+            severity=severity,
             inserted=inserted,
             explanation=explanation,
         )
-    except Exception as e:  # pragma: no cover
+    except Exception as e:
         logger.exception("Failed to approve trigger")
         raise HTTPException(status_code=500, detail=f"Failed to approve trigger: {e}")
-
 
 @app.delete('/api/triggers/{trigger_id}', response_model=DeleteTriggerResponse)
 async def delete_trigger_endpoint(trigger_id: int):
     try:
         deleted = delete_trigger(trigger_id)
         return DeleteTriggerResponse(id=trigger_id, deleted=deleted)
-    except Exception as e:  # pragma: no cover
+    except Exception as e:
         logger.exception("Failed to delete trigger id=%s", trigger_id)
         raise HTTPException(status_code=500, detail=f"Failed to delete trigger: {e}")
 
-# Root route -> index.html (if static present)
 @app.get('/')
 async def root(request: Request):
     index_path = os.path.join(STATIC_DIR, 'index.html')
@@ -284,7 +267,6 @@ async def root(request: Request):
         return FileResponse(index_path, media_type='text/html')
     return {"message": "Static frontend not found"}
 
-# FinOps executive view route -> finops.html (if present)
 @app.get('/finops')
 async def finops_page(request: Request):
     finops_path = os.path.join(STATIC_DIR, 'finops.html')

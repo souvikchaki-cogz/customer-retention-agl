@@ -1,7 +1,7 @@
 import logging
+from shared.config import EVIDENCE_MIN_LEN, CONFIDENCE_FLOOR  # unified config import
 
 # A list of keywords and phrases that may indicate customer vulnerability.
-# This list should be carefully curated and expanded based on domain knowledge.
 VULNERABILITY_LEXICON = [
     # Financial Hardship
     "hardship", "can't pay", "cannot pay", "struggling", "unemployed", "job loss",
@@ -33,9 +33,10 @@ def detect_vulnerability(text: str) -> (bool, list[str]):
 
     return is_vulnerable, found_keywords
 
-def substring_evidence_guard(evidence: str, min_len: int = 4):
-	# prevent blank/1-letter “evidence”
-	return isinstance(evidence, str) and len(evidence.strip()) >= min_len
-    
-def enforce_confidence_floors(hits, floor: float = 0.5):
-	return [h for h in hits if float(h.get("confidence", 0)) >= floor]
+def substring_evidence_guard(evidence: str, min_len: int = EVIDENCE_MIN_LEN):
+    # uses config default unless explicitly overridden
+    return isinstance(evidence, str) and len(evidence.strip()) >= min_len
+
+def enforce_confidence_floors(hits, floor: float = CONFIDENCE_FLOOR):
+    # uses config default unless explicitly overridden
+    return [h for h in hits if float(h.get("confidence", 0)) >= floor]
