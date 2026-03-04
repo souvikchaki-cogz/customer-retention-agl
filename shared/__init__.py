@@ -3,7 +3,7 @@
 """This module will serve as the initialization for the shared package."""
 
 from .sql_client import SqlClient
-from .azure_openai_predict import get_triggers_via_azure_openai, PROMPT
+from .azure_openai import get_triggers_via_azure_openai, PROMPT
 
 
 # --- Lazy wrappers for functions / batch consumers ---

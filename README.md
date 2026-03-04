@@ -17,10 +17,11 @@ The Customer Retention System helps retail banking teams identify customers at r
 customer-retention-agl/
 ├── shared/                     # Shared Python package (used by all components)
 │   ├── __init__.py
-│   ├── rules.py                # Rule loader (SQL or local YAML) and event scorer
+│   ├── azure_openai.py         # Azure OpenAI Client Factory
+│   ├── discovery.py            # Trigger discovery logic (LLM)
+│   ├── text_matcher.py         # Text rule matcher (LLM)
+│   ├── rules.py                # Rule loader and event scorer
 │   ├── sql_client.py           # Azure SQL client
-│   ├── azure_openai_predict.py # Azure OpenAI integration
-│   ├── aoai_text_matcher.py    # Text rule matcher
 │   ├── guardrails.py           # Confidence-floor and evidence guards
 │   ├── logging_utils.py        # Metrics / Application Insights client
 │   └── pii.py                  # PII scrubber
@@ -33,6 +34,8 @@ customer-retention-agl/
 │   └── function_app.py         # Orchestrator, activities, and HTTP starters
 ├── batch/                      # Workflow-2 discovery pipeline
 │   └── discovery_workflow.py
+├── scripts/                    # Utility scripts
+│   └── debug_discovery.py      # Manual trigger for discovery
 ├── sql/
 │   ├── sample_rules.yaml       # Default rule set (used when USE_SQL_RULES=0)
 │   └── tables.sql              # Azure SQL DDL

@@ -1,105 +1,69 @@
-"""Workflow-2 (Discovery): Batch n-gram mining for churn triggers with BH-FDR validation."""
+"""
+This script uses Azure OpenAI to generate synthetic customer retention triggers and saves them
+as candidates in the discovery_cards table for review and approval.
+"""
 import json
-import math
-import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.metrics import precision_score
+import os
+from openai import AzureOpenAI
+import yaml
 from shared.sql_client import SqlClient
-from shared.pii import scrub_text
+from shared.discovery import generate_triggers
 
+def write_discovery_cards(sql_client: SqlClient, triggers: list):
+    """
+    Writes the generated triggers to the discovery_cards table.
+    """
+    for trigger in triggers:
+        sql = """
+        INSERT INTO discovery_cards (phrase, support, lift, odds_ratio, fdr, examples_json, status, created_ts)
+        VALUES (?, ?, ?, ?, ?, ?, 'CANDIDATE', SYSDATETIME())
+        """
+        # Map the richer trigger format from the shared function to the database schema
+        example_phrases = trigger.get("example_phrases", "").split(",")
+        examples_json = json.dumps([p.strip() for p in example_phrases if p.strip()])
 
-def load_snapshots():
-    s = SqlClient()
-    with s._conn() as cn:
-        notes = pd.read_sql("SELECT customer_id, note_id, note_text, created_ts FROM notes_snapshot", cn)
-        closures = pd.read_sql("SELECT customer_id, closure_ts FROM closures", cn)
-        customers = pd.read_sql("SELECT customer_id FROM customers", cn)
-    return notes, closures, customers
-
-
-def label_notes_with_horizon(notes, closures, horizon_days=30):
-    closures = closures.copy()
-    closures["closure_ts"] = pd.to_datetime(closures["closure_ts"])
-    notes["created_ts"] = pd.to_datetime(notes["created_ts"])
-    notes = notes.merge(closures, on="customer_id", how="left")
-    notes["label"] = (notes["closure_ts"] - notes["created_ts"]).dt.days.between(0, horizon_days)
-    notes["label"] = notes["label"].fillna(False).astype(int)
-    notes["text_clean"] = notes["note_text"].fillna("").map(scrub_text)
-    return notes[["customer_id", "note_id", "text_clean", "created_ts", "label"]]
-
-
-def mine_candidates(train, min_support=50, max_features=5000, ngram=(1, 3)):
-    vect = CountVectorizer(lowercase=True, ngram_range=ngram, max_features=max_features, min_df=2)
-    X = vect.fit_transform(train["text_clean"])
-    y = train["label"].values
-    vocab = np.array(vect.get_feature_names_out())
-
-    counts_pos = X[y == 1].sum(axis=0).A1 + 0.5
-    counts_neg = X[y == 0].sum(axis=0).A1 + 0.5
-    support = counts_pos + counts_neg
-    mask = support >= min_support
-    vocab, counts_pos, counts_neg = vocab[mask], counts_pos[mask], counts_neg[mask]
-
-    odds_ratio = (counts_pos / (counts_pos.sum() - counts_pos)) / (counts_neg / (counts_neg.sum() - counts_neg))
-    lift = (counts_pos / counts_pos.sum()) / (counts_neg / counts_neg.sum())
-    se = np.sqrt(1 / counts_pos + 1 / (counts_pos.sum() - counts_pos) + 1 / counts_neg + 1 / (counts_neg.sum() - counts_neg))
-    z = np.log(odds_ratio) / se
-    pvals = 2 * (1 - 0.5 * (1 + pd.Series(z).apply(lambda v: math.erf(abs(v) / math.sqrt(2)))))
-
-    order = np.argsort(pvals)
-    m = len(pvals)
-    q = np.empty_like(pvals)
-    prev = 1.0
-    for i, idx in enumerate(order[::-1], start=1):
-        rank = m - i + 1
-        q[idx] = min(prev, pvals[idx] * m / rank)
-        prev = q[idx]
-
-    return pd.DataFrame({
-        "phrase": vocab, "support": support[mask], "lift": lift,
-        "odds_ratio": odds_ratio, "p_value": pvals, "fdr": q,
-    }).sort_values("fdr")
-
-
-def validate_on_test(cands, test, top_k=100):
-    import re
-    phrases = cands.head(top_k)["phrase"].tolist()
-    pattern = "|".join([re.escape(p) for p in phrases])
-    preds = test["text_clean"].str.contains(pattern, case=False, regex=True)
-    prec = precision_score(test["label"], preds.astype(int), zero_division=0)
-    counts = test["text_clean"].str.count(pattern)
-    topk_idx = counts.nlargest(top_k).index
-    p_at_k = test.loc[topk_idx, "label"].mean() if len(topk_idx) else 0.0
-    return float(prec), float(p_at_k)
-
-
-def write_discovery_cards(cands, examples):
-    sql_client = SqlClient()
-    for _, row in cands.head(200).iterrows():
-        ex_rows = examples[examples["text_clean"].str.contains(row["phrase"], case=False)].head(3)
-        ex = [e[:240] for e in ex_rows["text_clean"].tolist()]
-        sql_client.fetch_one(
-            "INSERT INTO discovery_cards (phrase,support,lift,odds_ratio,fdr,examples_json,status,created_ts) "
-            "VALUES (?,?,?,?,?,?,'CANDIDATE',SYSDATETIME())",
-            params=[row["phrase"], int(row["support"]), float(row["lift"]),
-                    float(row["odds_ratio"]), float(row["fdr"]), json.dumps(ex)],
-        )
-
+        sql_client.fetch_one(sql, params=[
+            trigger.get("description"),
+            float(trigger.get("support", {}).get("value", 0.0)),
+            float(trigger.get("lift", {}).get("value", 0.0)),
+            float(trigger.get("odds_ratio", {}).get("value", 0.0)),
+            float(trigger.get("fdr", 0.0)),
+            examples_json
+        ])
+    print(f"Successfully inserted {len(triggers)} new triggers into discovery_cards.")
 
 def main():
-    notes, closures, customers = load_snapshots()
-    labeled = label_notes_with_horizon(notes, closures, horizon_days=30)
-    cust_train, cust_test = train_test_split(labeled["customer_id"].unique(), test_size=0.3, random_state=42)
-    train = labeled[labeled["customer_id"].isin(cust_train)]
-    test = labeled[labeled["customer_id"].isin(cust_test)]
+    """
+    Main function to run the discovery workflow.
+    """
+    print("Starting synthetic trigger generation workflow...")
+    sql_client = SqlClient()
+    
+    # Get existing rules to avoid duplicates
+    current_ruleset_query = "SELECT ruleset_yaml FROM rules_library WHERE status = 'ACTIVE'"
+    current_ruleset_result = sql_client.fetch_one(current_ruleset_query)
+    existing_phrases = []
+    if current_ruleset_result:
+        try:
+            existing_rules = yaml.safe_load(current_ruleset_result['ruleset_yaml']) or {}
+            existing_phrases = list(existing_rules.get("text_rules", {}).keys())
+        except (yaml.YAMLError, KeyError) as e:
+            print(f"Error parsing existing rules: {e}")
 
-    cands = mine_candidates(train, min_support=30, max_features=8000, ngram=(1, 3))
-    prec, p_at_k = validate_on_test(cands[cands["fdr"] <= 0.1], test, top_k=100)
-    print(f"Discovery validation: Precision={prec:.3f}, P@100={p_at_k:.3f}")
-    write_discovery_cards(cands[cands["fdr"] <= 0.1], test)
+    # Generate synthetic triggers
+    print(f"Generating new triggers, excluding {len(existing_phrases)} existing phrases.")
+    new_triggers = generate_triggers(exclude_phrases=existing_phrases)
 
+    if not new_triggers:
+        print("No new triggers were generated.")
+        return
+
+    print(f"Generated {len(new_triggers)} new triggers to be reviewed.")
+
+    # Write the new triggers to the discovery_cards table for review
+    write_discovery_cards(sql_client, new_triggers)
+
+    print("Discovery workflow completed. New triggers are ready for review in the discovery_cards table.")
 
 if __name__ == "__main__":
     main()
