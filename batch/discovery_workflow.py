@@ -24,7 +24,7 @@ def write_discovery_cards(sql_client: SqlClient, triggers: list):
         example_phrases = trigger.get("example_phrases", "").split(",")
         examples_json = json.dumps([p.strip() for p in example_phrases if p.strip()])
 
-        sql_client.fetch_one(sql, params=[
+        sql_client.execute(sql, params=[
             trigger.get("description"),
             float(trigger.get("support", {}).get("value", 0.0)),
             float(trigger.get("lift", {}).get("value", 0.0)),

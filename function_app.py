@@ -44,6 +44,7 @@ async def http_start_single_analysis(req: func.HttpRequest, durable_client: df.D
     """
     logger.info("HTTP trigger received request for single analysis.")
 
+    body = None
     try:
         body = req.get_json()
         eval_req = EvaluateRequest(**body)  # Use shared schema for validation
@@ -51,9 +52,14 @@ async def http_start_single_analysis(req: func.HttpRequest, durable_client: df.D
         note_text = eval_req.note
     except Exception as e:
         logger.error("Invalid request format: %s", str(e))
+        # Try to extract customer_id for error response, default to "unknown"
+        cid = "unknown"
+        if isinstance(body, dict):
+            cid = body.get("customer_id", "unknown")
+
         err_resp = EvaluateResponse(
             message="Please provide 'customer_id' and 'note' in the request body.",
-            customer_id=None,
+            customer_id=cid,
             status="error"
         )
         return func.HttpResponse(

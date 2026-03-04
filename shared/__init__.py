@@ -3,7 +3,7 @@
 """This module will serve as the initialization for the shared package."""
 
 from .sql_client import SqlClient
-from .azure_openai import get_triggers_via_azure_openai, PROMPT
+from .discovery import generate_triggers, PROMPT
 
 
 # --- Lazy wrappers for functions / batch consumers ---
@@ -20,14 +20,14 @@ def score_event(ruleset, text_result, features):
 
 
 def match_text_rules(text, ruleset):
-    """Lazy proxy – imports shared.aoai_text_matcher only when actually called."""
-    from .aoai_text_matcher import match_text_rules as _match
+    """Lazy proxy – imports shared.text_matcher only when actually called."""
+    from .text_matcher import match_text_rules as _match
     return _match(text, ruleset)
 
 
 __all__ = [
     "SqlClient",
-    "get_triggers_via_azure_openai",
+    "generate_triggers",
     "PROMPT",
     "load_active_ruleset",
     "score_event",

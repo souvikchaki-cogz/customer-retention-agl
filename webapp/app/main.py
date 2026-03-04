@@ -2,7 +2,7 @@ import logging
 from typing import Any, Dict
 import httpx
 import os
-from fastapi import FastAPI, HTTPException, Request, Query
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -63,8 +63,8 @@ async def _call_function_start(customer_id: str, note: str) -> Dict[str, Any]:
         if not FUNCTION_CODE:
             raise RuntimeError("FUNCTION_CODE env var required when FUNCTION_START_URL not provided")
         url = f"{FUNCTION_BASE_URL}/api/http_start_single_analysis?code={FUNCTION_CODE}"
-    payload = {"customer_id": customer_id, "text": note}
-    logger.debug("Calling Azure Function start URL=%s payload(customer_id,text)=%s", url, payload)
+    payload = {"customer_id": customer_id, "note": note}
+    logger.debug("Calling Azure Function start URL=%s payload(customer_id,note)=%s", url, payload)
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(url, json=payload)
         if r.status_code >= 400:
