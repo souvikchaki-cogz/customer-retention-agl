@@ -25,10 +25,17 @@ class SqlClient:
     def _conn(self):
         try:
             logging.info("Attempting to connect to database: %s on server %s", self.db, self.server)
-            return pyodbc.connect(
-                f"DRIVER={self.driver};SERVER={self.server};DATABASE={self.db};UID={self.uid};PWD={self.pwd};"
+            base_conn_str = (
+                f"DRIVER={self.driver};SERVER={self.server};DATABASE={self.db};"
                 "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
             )
+            if self.use_entra:
+                conn_str = f"{base_conn_str}Authentication=ActiveDirectoryMsi;"
+                logging.info("Connecting using Entra ID (Managed Identity).")
+            else:
+                conn_str = f"{base_conn_str}UID={self.uid};PWD={self.pwd};"
+
+            return pyodbc.connect(conn_str)
         except pyodbc.Error as ex:
             logging.error("Database connection failed: %s", ex)
             raise
