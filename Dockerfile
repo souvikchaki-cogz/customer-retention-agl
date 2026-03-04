@@ -1,15 +1,18 @@
+# Use official Python image
 ARG PYTHON_IMAGE=python:3.12
 FROM ${PYTHON_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=on
+
 WORKDIR /app
-    # update data from apt-get repositories
+
+# Install system dependencies for SQL Server
 RUN apt-get update && \
     apt-get -y install unzip curl gnupg wget
 
-# sql server drivers and bcp
+# SQL Server drivers and bcp
 RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.gpg && \
     curl -fsSL https://packages.microsoft.com/config/debian/11/prod.list > /etc/apt/sources.list.d/mssql-release.list && \
     apt-get update && \
@@ -19,13 +22,18 @@ RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
 
 ENV PATH="/opt/mssql-tools18/bin:${PATH}"
 
-# COPY backend/requirements.txt ./requirements.txt
-# (Optional) install build deps only if wheels need compiling; kept minimal for lean image
-RUN pip install --no-cache-dir -r requirements.txt \
-    && rm -rf /root/.cache/pip
-COPY backend ./backend
-COPY static ./static
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt --root-user-action=ignore
 
-# Static frontend served from / (index) and /static assets. React build removed; 'frontend' folder deprecated.
+# Copy all app code (webapp, shared, static, plus anything you need)
+COPY shared ./shared
+COPY webapp/app ./webapp/app
+COPY webapp/static ./webapp/static
+
+# Optionally copy frontend JS/CSS/HTML if your client is served from FastAPI/static
+# COPY webapp/frontend ./webapp/frontend
+
 EXPOSE 8000
-CMD ["uvicorn", "backend.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Main FastAPI entry point. Adjust if your filename/ASGI app path differs!
+CMD ["uvicorn", "webapp.app.main:app", "--host", "0.0.0.0", "--port", "8000"]
