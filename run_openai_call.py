@@ -1,6 +1,6 @@
 import os
 import json
-from backend.app.azure_openai import get_triggers_via_azure_openai
+from shared.discovery import generate_triggers
 from dotenv import load_dotenv
 
 # This script is for manually triggering the Azure OpenAI call to inspect the response.
@@ -38,7 +38,7 @@ def main():
 
     try:
         # Call the function
-        triggers = get_triggers_via_azure_openai()
+        triggers = generate_triggers()
 
         # Print the response in a readable format
         print("\n--- Azure OpenAI Response ---")

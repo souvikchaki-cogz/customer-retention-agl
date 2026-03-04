@@ -17,7 +17,7 @@ from shared.discovery import generate_triggers
 # - AZURE_OPENAI_DEPLOYMENT
 #
 # To run the script, execute this command from the project root directory:
-# python scripts/debug_discovery.py
+# python shared/debug_discovery.py
 
 def main():
     """

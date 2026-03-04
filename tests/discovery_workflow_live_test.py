@@ -10,7 +10,7 @@ from batch.discovery_workflow import get_openai_client, generate_synthetic_trigg
 # --- Prerequisites Check ---
 def check_env_vars():
     """Checks if the required environment variables are set."""
-    required_vars = ["AZURE_OPENAI_API_ENDPOINT", "AZURE_OPENAI_DEPLOYMENTNAME", "AZURE_OPENAI_API_KEY"]
+    required_vars = ["AZURE_OPENAI_ENDPOINT", "AZURE_OPENAI_DEPLOYMENT", "AZURE_OPENAI_API_KEY"]
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     if missing_vars:
         print("Error: The following environment variables are not set:", ", ".join(missing_vars))
