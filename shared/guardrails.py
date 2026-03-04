@@ -1,5 +1,41 @@
-def substring_evidence_guard(evidence: str, min_len: int = 4):
-    return isinstance(evidence, str) and len(evidence.strip()) >= min_len
+import logging
 
+# A list of keywords and phrases that may indicate customer vulnerability.
+# This list should be carefully curated and expanded based on domain knowledge.
+VULNERABILITY_LEXICON = [
+    # Financial Hardship
+    "hardship", "can't pay", "cannot pay", "struggling", "unemployed", "job loss",
+    "financial difficulty", "debt", "bankruptcy", "foreclosure",
+    # Health & Personal Distress
+    "sick", "illness", "hospital", "medical", "bereavement", "death", "passed away",
+    "divorce", "mental health", "distress", "crisis",
+    # Age & Cognitive Vulnerability
+    "confused", "pensioner", "elderly", "forgetting", "scam", "scammed"
+]
+
+def detect_vulnerability(text: str) -> (bool, list[str]):
+    """
+    Detects potential customer vulnerability by searching for keywords in text.
+    Returns a tuple of (bool: is_vulnerable, list: found_keywords).
+    """
+    found_keywords = []
+    if not isinstance(text, str):
+        return False, found_keywords
+
+    lower_text = text.lower()
+    for keyword in VULNERABILITY_LEXICON:
+        if keyword in lower_text:
+            found_keywords.append(keyword)
+    
+    is_vulnerable = len(found_keywords) > 0
+    if is_vulnerable:
+        logging.warning(f"Vulnerability Guardrail: Detected potential vulnerability. Keywords found: {found_keywords}")
+
+    return is_vulnerable, found_keywords
+
+def substring_evidence_guard(evidence: str, min_len: int = 4):
+	# prevent blank/1-letter “evidence”
+	return isinstance(evidence, str) and len(evidence.strip()) >= min_len
+    
 def enforce_confidence_floors(hits, floor: float = 0.5):
-    return [h for h in hits if float(h.get("confidence", 0)) >= floor]
+	return [h for h in hits if float(h.get("confidence", 0)) >= floor]

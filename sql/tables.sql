@@ -7,6 +7,19 @@ CREATE TABLE customers_snapshot (
 	origination_date DATETIME2
 );
 
+CREATE TABLE [dbo].[Structured] (
+    [id]           INT           IDENTITY (1, 1) NOT NULL,
+	[account_id]      VARCHAR (50)  NOT NULL,
+    [customer_id]      VARCHAR (50)  NOT NULL,
+    [product_name]         NVARCHAR(100) NULL,
+    [remaining_years]      FLOAT (53)    NOT NULL,
+    [is_broker_originated] BIT           NOT NULL,
+    [interest_rate]        FLOAT (53)    NOT NULL,
+    [is_interest_only]     BIT           NOT NULL DEFAULT 0,
+    [interest_only_end_date] DATE        NULL,
+    CONSTRAINT [PK_Structured] PRIMARY KEY CLUSTERED ([id] ASC)
+);
+
 CREATE TABLE notes ( -- operational stream (for replay)
 	note_id NVARCHAR(64) PRIMARY KEY,
 	customer_id NVARCHAR(64),
@@ -26,6 +39,14 @@ CREATE TABLE rules_library (
 	status NVARCHAR(16), -- ACTIVE, DRAFT
 	activated_ts DATETIME2,
 	ruleset_yaml NVARCHAR(MAX)
+);
+
+-- Table to store advertised rates for different product types
+CREATE TABLE dbo.product_rates (
+    product_name NVARCHAR(100) PRIMARY KEY,
+    advertised_rate FLOAT NOT NULL,
+    rate_type VARCHAR(20), -- e.g., 'FIXED', 'VARIABLE'
+    last_updated DATETIME2 NOT NULL
 );
 
 CREATE TABLE lead_cards (
