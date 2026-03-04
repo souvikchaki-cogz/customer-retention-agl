@@ -7,14 +7,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
-from shared.discovery import generate_triggers, PROMPT
-from .db import fetch_existing_triggers, delete_trigger, update_rules_library_with_new_trigger
 from dotenv import load_dotenv
 
 # Import all config/environment variables from one place
 from shared.config import (
     LOG_LEVEL, FUNCTION_START_URL, FUNCTION_BASE_URL, FUNCTION_CODE
 )
+
+# Import API schemas from shared.models instead of defining locally
+from shared.models import (
+    EvaluateRequest, EvaluateResponse,
+    PredictResponse, TriggerStat,
+    ExistingTrigger, ExistingTriggersResponse,
+    ApproveTriggerRequest, ApproveTriggerResponse,
+    DeleteTriggerResponse
+)
+
+from shared.discovery import generate_triggers, PROMPT
+from .db import fetch_existing_triggers, delete_trigger, update_rules_library_with_new_trigger
 
 # Load environment variables from a .env file if present. This is idempotent and safe.
 load_dotenv()
@@ -41,69 +51,6 @@ app.add_middleware(
 STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "static"))
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR, html=False), name="static")
-
-class EvaluateRequest(BaseModel):
-    customer_id: str
-    note: str
-
-class EvaluateResponse(BaseModel):
-    message: str = "Evaluation Triggered"
-    customer_id: str
-    instance_id: str | None = None
-    status_query_url: str | None = None
-    runtime_status: str | None = None
-    progress: int | None = None
-    status: str | None = None  # customStatus.status
-
-class Metric(BaseModel):
-    value: float
-    explanation: str
-
-class TriggerStat(BaseModel):
-    description: str
-    example_phrases: str
-    narrative_explanation: str
-    support: Metric
-    lift: Metric
-    odds_ratio: Metric
-    p_value: float
-    fdr: float
-
-class PredictResponse(BaseModel):
-    triggers: list[TriggerStat]
-
-class ExistingTrigger(BaseModel):
-    id: int | None = None
-    phrase: str
-    severity: str | None = None
-    support: float | None = None
-    lift: float | None = None
-    odds_ratio: float | None = None
-    p_value: float | None = None
-    fdr: float | None = None
-    explanation: str | None = None
-
-class ExistingTriggersResponse(BaseModel):
-    triggers: list[ExistingTrigger]
-
-class ApproveTriggerRequest(BaseModel):
-    phrase: str
-    example_phrases: str
-    support: float
-    lift: float
-    odds_ratio: float
-    p_value: float
-    fdr: float
-
-class ApproveTriggerResponse(BaseModel):
-    phrase: str
-    severity: str
-    inserted: bool
-    explanation: str
-
-class DeleteTriggerResponse(BaseModel):
-    id: int
-    deleted: bool
 
 @app.get('/api/health')
 async def health():

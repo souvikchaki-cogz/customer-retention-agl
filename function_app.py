@@ -14,6 +14,15 @@ from shared.rules import load_active_ruleset, score_event
 from shared.sql_client import SqlClient
 from shared.config import LEAD_SCORE_THRESHOLD, LOG_LEVEL  # <--- unified config import
 
+# Import shared models
+from shared.models import (
+    EvaluateRequest, EvaluateResponse,
+    PredictResponse, TriggerStat,
+    ExistingTrigger, ExistingTriggersResponse,
+    ApproveTriggerRequest, ApproveTriggerResponse,
+    DeleteTriggerResponse
+)
+
 # --- Set logging config from shared LOG_LEVEL ---
 logging.basicConfig(
     level=LOG_LEVEL,
@@ -24,31 +33,32 @@ logger.debug("Configured function logging with level %s", LOG_LEVEL)
 
 app = df.DFApp(http_auth_level=func.AuthLevel.FUNCTION)
 
-THRESHOLD = LEAD_SCORE_THRESHOLD  # <--- from shared config
+THRESHOLD = LEAD_SCORE_THRESHOLD
 
 @app.route(route="http_start_single_analysis")
 @app.durable_client_input(client_name="durable_client")
 async def http_start_single_analysis(req: func.HttpRequest, durable_client: df.DurableOrchestrationClient) -> func.HttpResponse:
     """
     HTTP Trigger to start a single analysis for the interactive demo UI.
-    Expects a JSON body with 'customer_id' and 'text'.
+    Expects a JSON body matching EvaluateRequest schema.
     """
     logger.info("HTTP trigger received request for single analysis.")
 
     try:
         body = req.get_json()
-        customer_id = body.get("customer_id")
-        note_text = body.get("text")
-        if not customer_id or not note_text:
-            logger.warning("Request body missing 'customer_id' or 'text'.")
-            return func.HttpResponse(
-                "Please provide 'customer_id' and 'text' in the request body.",
-                status_code=400
-            )
-    except ValueError:
-        logger.error("Invalid JSON format in request body.")
+        eval_req = EvaluateRequest(**body)  # Use shared schema for validation
+        customer_id = eval_req.customer_id
+        note_text = eval_req.note
+    except Exception as e:
+        logger.error("Invalid request format: %s", str(e))
+        err_resp = EvaluateResponse(
+            message="Please provide 'customer_id' and 'note' in the request body.",
+            customer_id=None,
+            status="error"
+        )
         return func.HttpResponse(
-            "Invalid JSON format in request body.",
+            err_resp.json(),
+            mimetype="application/json",
             status_code=400
         )
 
@@ -67,8 +77,15 @@ async def http_start_single_analysis(req: func.HttpRequest, durable_client: df.D
         return durable_client.create_check_status_response(req, instance_id)
     except Exception as e:
         logger.error("Error starting orchestration: %s", str(e))
+        err_resp = EvaluateResponse(
+            message="Failed to start analysis orchestration.",
+            customer_id=customer_id,
+            instance_id=None,
+            status="error"
+        )
         return func.HttpResponse(
-            "Failed to start analysis orchestration.",
+            err_resp.json(),
+            mimetype="application/json",
             status_code=500
         )
 
