@@ -1,0 +1,150 @@
+✅ Environment variables are set correctly.
+--- Test Scenario: Customer asks to close loan, has IO loan expiring soon ---
+
+▶️  1. Calling Text Agent for customer CUST0003...
+✅ Success! Text Agent returned:
+{'rule_hits': [{'rule_id': 'T3', 'confidence': 1.0, 'hit': True, 'evidence_text': 'process to close my mortgage', 'description': 'Asking how to close their loan and who to speak with.', 'explanation': "The note explicitly asks about the process to close their mortgage, which directly matches the rule's description and phrase hints."}, {'rule_id': 'T1', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Requesting a statement on their transaction account (e.g., to check household expenses).', 'explanation': ''}, {'rule_id': 'T2', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Requesting a loan payout (payoff) figure.', 'explanation': ''}, {'rule_id': 'T4', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Asking about break costs and fees involved with closing their loan.', 'explanation': ''}, {'rule_id': 'T5', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Asking what their loan to value ratio (LVR) is.', 'explanation': ''}, {'rule_id': 'T6', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Mentioning change in circumstances (divorce, moving, buying a new property).', 'explanation': ''}, {'rule_id': 'T7', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Recent HL retention/switch product attempt was unsuccessful.', 'explanation': ''}, {'rule_id': 'T8', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Recent interest-only product request unsuccessful.', 'explanation': ''}, {'rule_id': 'T9', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Recent HL product enquiry unsuccessful.', 'explanation': ''}, {'rule_id': 'T10', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Financial Hardship Indicators', 'explanation': ''}, {'rule_id': 'T11', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Loan Inquiry and Cancellation Requests', 'explanation': ''}, {'rule_id': 'T12', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'High-Value Transactions and Withdrawals', 'explanation': ''}, {'rule_id': 'T13', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Financial Hardship Signals', 'explanation': ''}, {'rule_id': 'T14', 'confidence': 0.0, 'hit': False, 'evidence_text': '', 'description': 'Fraud and Unauthorized Transactions', 'explanation': ''}], 'llm_used': 'my-gpt4o', 'model_latency_ms': 3233, 'token_usage': {'prompt_tokens': 1106, 'completion_tokens': 71, 'total_tokens': 1177}, 'vulnerability_detected': False, 'vulnerability_keywords': [], 'ruleset_version': '0.1.5'}
+
+▶️  2. Fetching structured data for customer CUST0003...
+✅ Success! Structured data returned:
+{'id': 3, 'account_id': 'ACC00003', 'customer_id': 'CUST0003', 'product_name': 'IMB Essentials Home Loan', 'remaining_years': 2.5, 'is_broker_originated': True, 'interest_rate': 5.0, 'is_interest_only': True, 'interest_only_end_date': '2025-11-15', 'advertised_rate': 5.66, 'loan_tenure': 8}
+
+▶️  3. Evaluating rules...
+
+✅ Success! Rule evaluation returned:
+{
+  "should_emit": true,
+  "score": 0.9,
+  "rule_hits_json": [
+    {
+      "rule_id": "T3",
+      "confidence": 1.0,
+      "hit": true,
+      "evidence_text": "process to close my mortgage",
+      "description": "Asking how to close their loan and who to speak with.",
+      "explanation": "The note explicitly asks about the process to close their mortgage, which directly matches the rule's description and phrase hints."
+    },
+    {
+      "rule_id": "T1",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Requesting a statement on their transaction account (e.g., to check household expenses).",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T2",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Requesting a loan payout (payoff) figure.",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T4",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Asking about break costs and fees involved with closing their loan.",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T5",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Asking what their loan to value ratio (LVR) is.",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T6",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Mentioning change in circumstances (divorce, moving, buying a new property).",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T7",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Recent HL retention/switch product attempt was unsuccessful.",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T8",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Recent interest-only product request unsuccessful.",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T9",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Recent HL product enquiry unsuccessful.",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T10",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Financial Hardship Indicators",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T11",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Loan Inquiry and Cancellation Requests",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T12",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "High-Value Transactions and Withdrawals",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T13",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Financial Hardship Signals",
+      "explanation": ""
+    },
+    {
+      "rule_id": "T14",
+      "confidence": 0.0,
+      "hit": false,
+      "evidence_text": "",
+      "description": "Fraud and Unauthorized Transactions",
+      "explanation": ""
+    }
+  ],
+  "structured_snapshot_json": {
+    "id": 3,
+    "account_id": "ACC00003",
+    "customer_id": "CUST0003",
+    "product_name": "IMB Essentials Home Loan",
+    "remaining_years": 2.5,
+    "is_broker_originated": true,
+    "interest_rate": 5.0,
+    "is_interest_only": true,
+    "interest_only_end_date": "2025-11-15",
+    "advertised_rate": 5.66,
+    "loan_tenure": 8
+  },
+  "explanation_text": "Loan tenure is critical (2.5 years remaining) | Broker-originated loan | Interest-only term expires in 52 days | T3 evidence: \u201cprocess to close my mortgage\u201d",
+  "agent_version": "v1",
+  "ruleset_version": "0.1.5",
+  "note_id": "note_test_123",
+  "customer_id": "CUST0003"
+}
