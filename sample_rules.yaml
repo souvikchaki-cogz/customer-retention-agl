@@ -1,18 +1,13 @@
 version: "1.0.0"
-confidence_floor: 0.6
+confidence_floor: 0.55 # AOAI hit must be >= this confidence
 evidence_guard:
-  min_chars: 4
+  min_chars: 4 # ignore 1-3 char "evidence"
 weights:
-  # Move-out scenario carries highest weight (near-certain churn)
-  moveout_risk: 0.40
+  property_sale_risk: 0.35
+  contract_expiry_risk: 0.20
   bill_shock_risk: 0.20
-  property_sale_risk: 0.35   # proactive: cross-referenced property market signal
   no_concession_risk: 0.15
-
 text_rules:
-
-  # ── SCENARIO 2: MOVE-OUT / LIFE EVENT (Very High churn intent) ──────────────
-
   T1_FINAL_METER_READ:
     id: "T1"
     description: "Requesting a final meter read or final bill ahead of moving out."
@@ -24,7 +19,7 @@ text_rules:
       - "close my account"
       - "disconnection date"
     negations:
-      - "interim meter read"   # routine, not move-out
+      - "interim meter read"
 
   T2_MOVE_OUT_REQUEST:
     id: "T2"
@@ -39,6 +34,7 @@ text_rules:
       - "property is being rented out"
       - "settlement date"
       - "lease is ending"
+    negations: []
 
   T3_ACCOUNT_TRANSFER_OR_CLOSURE:
     id: "T3"
@@ -52,7 +48,7 @@ text_rules:
       - "how do I cancel"
       - "notice period to close"
     negations:
-      - "transfer to solar"   # solar upgrade, not closure
+      - "transfer to solar"
 
   T4_CREDIT_REFUND_REQUEST:
     id: "T4"
@@ -63,6 +59,7 @@ text_rules:
       - "get my credit back"
       - "outstanding credit balance"
       - "how do I get my refund"
+    negations: []
 
   T5_LANDLORD_TENANT_CHANGE:
     id: "T5"
@@ -75,8 +72,7 @@ text_rules:
       - "new owner"
       - "deceased estate"
       - "estate administration"
-
-  # ── SCENARIO 1: BILL SHOCK / PRICE COMPARISON (Medium-High churn intent) ────
+    negations: []
 
   T6_BILL_SHOCK_COMPLAINT:
     id: "T6"
@@ -90,7 +86,7 @@ text_rules:
       - "can't afford this bill"
       - "bill increased significantly"
     negations:
-      - "estimate"  # avoid flagging estimated-bill queries
+      - "estimate"
 
   T7_COMPARING_RETAILERS:
     id: "T7"
@@ -105,7 +101,7 @@ text_rules:
       - "found a cheaper plan"
       - "competitor is offering"
     negations:
-      - "energy made easy account"  # admin use, not comparison
+      - "energy made easy account"
 
   T8_SWITCHING_PROCESS_ENQUIRY:
     id: "T8"
@@ -118,6 +114,7 @@ text_rules:
       - "cooling off period"
       - "exit fee"
       - "contract end date"
+    negations: []
 
   T9_PLAN_OR_DISCOUNT_ENQUIRY:
     id: "T9"
@@ -130,10 +127,11 @@ text_rules:
       - "move to month to month"
       - "pay on time discount"
       - "solar feed-in tariff"
+    negations: []
 
   T10_HARDSHIP_SWITCH_RISK:
     id: "T10"
-    description: "Customer mentioning hardship or inability to pay, a precursor to switching."
+    description: "Customer mentioning financial hardship or inability to pay, a precursor to switching."
     weight: 0.30
     phrase_hints:
       - "can't afford"
@@ -142,9 +140,10 @@ text_rules:
       - "struggling to pay"
       - "cost of living"
       - "defer my payment"
+    negations: []
 
 decay:
-  half_life_days: 21   # energy switching is faster than mortgage refinancing
+  half_life_days: 21
 exclusions:
   - "test account"
   - "dummy data"
