@@ -7,36 +7,20 @@ from datetime import datetime
 from shared.config import (
     AZSQL_SERVER,
     AZSQL_DB,
-    AZSQL_UID,
-    AZSQL_PWD,
     AZSQL_DRIVER,
-    AZSQL_USE_ENTRA,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _get_sql_config() -> Dict[str, str]:
-    return {
-        "server": AZSQL_SERVER,
-        "database": AZSQL_DB,
-        "username": AZSQL_UID,
-        "password": AZSQL_PWD,
-        "driver": AZSQL_DRIVER,
-        # Hard-coded table name per request (schema-qualified)
-        "table": "dbo.Triggers",
-    }
-
-
-def _build_conn_str(cfg: Dict[str, str]) -> str:
-    """Builds a pyodbc connection string from config, supporting Entra/Managed Identity."""
-    base = f'DRIVER={{{cfg["driver"]}}};SERVER={cfg["server"]};DATABASE={cfg["database"]};Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;'
-
-    # Use shared config for Entra ID
-    if AZSQL_USE_ENTRA == "1":
-        return f"{base}Authentication=ActiveDirectoryMsi;"
-    else:
-        return f'{base}UID={cfg["username"]};PWD={cfg["password"]};'
+def _get_conn_str() -> str:
+    """Always uses Microsoft Entra Managed Identity. UID/password auth is not supported."""
+    driver = AZSQL_DRIVER or "{ODBC Driver 18 for SQL Server}"
+    return (
+        f"DRIVER={{{driver}}};SERVER={AZSQL_SERVER};DATABASE={AZSQL_DB};"
+        "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
+        "Authentication=ActiveDirectoryMsi;"
+    )
 
 
 def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
@@ -44,22 +28,35 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
     Fetch rules from the rules_library table and combine them with
     hardcoded customer profile rules.
     """
-    cfg = _get_sql_config()
-    use_entra = AZSQL_USE_ENTRA == "1"
-    creds_ok = use_entra or all([cfg["username"], cfg["password"]]) # username/pwd can be empty for Entra
-    if not all([cfg["server"], cfg["database"]]) or not creds_ok:
-        logger.info("Azure SQL config incomplete; returning empty trigger list")
-        return []
-    if pyodbc is None:
-        logger.warning("pyodbc not installed; cannot fetch triggers; returning empty list")
-        return []
-
     rows: List[Dict[str, Any]] = []
     rule_id_counter = 1
 
-    # 1. Fetch rules from database
+    # 1. Add hardcoded customer profile rules (always returned regardless of DB config)
+    core_systems_rules = [
+      "Loan tenure is between 1-6 years",
+      "Broker originated loan",
+      "Interest rate is 0.5% higher than advertised rate",
+      "Interest only loan term coming to an end"
+    ]
+
+    for rule in core_systems_rules:
+        rows.append({
+            "id": rule_id_counter,
+            "phrase": rule,
+            "severity": "CORE",
+        })
+        rule_id_counter += 1
+
+    if not all([AZSQL_SERVER, AZSQL_DB]):
+        logger.info("Azure SQL config incomplete (AZSQL_SERVER / AZSQL_DB not set)")
+        return rows
+    if pyodbc is None:
+        logger.warning("pyodbc not installed; cannot fetch triggers; returning empty list")
+        return rows
+
+    # 2. Fetch rules from database
     query = "SELECT TOP 1 ruleset_yaml FROM dbo.rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
-    conn_str = _build_conn_str(cfg)
+    conn_str = _get_conn_str()
     try:
         with pyodbc.connect(conn_str) as conn:
             with conn.cursor() as cur:
@@ -80,23 +77,6 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
                                 rule_id_counter += 1
     except Exception as exc:
         logger.error("Failed to fetch rules from rules_library: %s", exc)
-        # Don't return here, still want to add hardcoded rules
-
-    # 2. Add hardcoded customer profile rules
-    core_systems_rules = [
-      "Loan tenure is between 1-6 years",
-      "Broker originated loan",
-      "Interest rate is 0.5% higher than advertised rate",
-      "Interest only loan term coming to an end"
-    ]
-
-    for rule in core_systems_rules:
-        rows.append({
-            "id": rule_id_counter,
-            "phrase": rule,
-            "severity": "CORE",
-        })
-        rule_id_counter += 1
 
     return rows
 
@@ -170,17 +150,12 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
                 max_id = max(max_id, candidate)
         return max_id
 
-    cfg = _get_sql_config()
-    use_entra = AZSQL_USE_ENTRA == "1"
-    creds_ok = use_entra or all([cfg["username"], cfg["password"]]) # username/pwd can be empty for Entra
-    if not all([cfg["server"], cfg["database"]]) or not creds_ok:
-        logger.error("Azure SQL config incomplete; cannot update rules_library")
+    if not all([AZSQL_SERVER, AZSQL_DB]):
+        logger.error("Azure SQL config incomplete (AZSQL_SERVER / AZSQL_DB not set)")
         return False
     if pyodbc is None:  # type: ignore
         logger.error("pyodbc not installed; cannot update rules_library")
         return False
-
-    # Normalize inputs
     try:
         weight = round(float(odds_ratio) / 10.0, 3)
     except Exception:
@@ -188,7 +163,7 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
         return False
     phrase_hints = [h.strip() for h in (example_phrases or "").split(",") if h.strip()]
 
-    conn_str = _build_conn_str(cfg)
+    conn_str = _get_conn_str()
     try:
         with pyodbc.connect(conn_str, autocommit=False) as conn:  # type: ignore
             with conn.cursor() as cur:  # type: ignore
@@ -300,20 +275,17 @@ def insert_trigger(phrase: str, severity: str) -> bool:
 
     Returns True on success, False on any failure (including missing config / driver).
     """
-    cfg = _get_sql_config()
-    use_entra = AZSQL_USE_ENTRA == "1"
-    creds_ok = use_entra or all([cfg["username"], cfg["password"]]) # username/pwd can be empty for Entra
-    if not all([cfg["server"], cfg["database"]]) or not creds_ok:
-        logger.info("Azure SQL config incomplete; cannot insert trigger")
+    if not all([AZSQL_SERVER, AZSQL_DB]):
+        logger.info("Azure SQL config incomplete (AZSQL_SERVER / AZSQL_DB not set)")
         return False
     if pyodbc is None:  # type: ignore
         logger.warning("pyodbc not installed; cannot insert trigger")
         return False
-    conn_str = _build_conn_str(cfg)
+    conn_str = _get_conn_str()
     try:
         with pyodbc.connect(conn_str) as conn:  # type: ignore
             with conn.cursor() as cur:  # type: ignore
-                cur.execute(f"INSERT INTO {cfg['table']} (trigger_text, severity) VALUES (?, ?)", phrase, severity)
+                cur.execute("INSERT INTO dbo.Triggers (trigger_text, severity) VALUES (?, ?)", phrase, severity)
                 conn.commit()
         logger.debug("Inserted trigger phrase=%s severity=%s", phrase, severity)
         return True
@@ -324,20 +296,17 @@ def insert_trigger(phrase: str, severity: str) -> bool:
 
 def delete_trigger(trigger_id: int) -> bool:
     """Delete a trigger by id. Returns True if a row was deleted."""
-    cfg = _get_sql_config()
-    use_entra = AZSQL_USE_ENTRA == "1"
-    creds_ok = use_entra or all([cfg["username"], cfg["password"]]) # username/pwd can be empty for Entra
-    if not all([cfg["server"], cfg["database"]]) or not creds_ok:
-        logger.info("Azure SQL config incomplete; cannot delete trigger")
+    if not all([AZSQL_SERVER, AZSQL_DB]):
+        logger.info("Azure SQL config incomplete (AZSQL_SERVER / AZSQL_DB not set)")
         return False
     if pyodbc is None:  # type: ignore
         logger.warning("pyodbc not installed; cannot delete trigger")
         return False
-    conn_str = _build_conn_str(cfg)
+    conn_str = _get_conn_str()
     try:
         with pyodbc.connect(conn_str) as conn:  # type: ignore
             with conn.cursor() as cur:  # type: ignore
-                cur.execute(f"DELETE FROM {cfg['table']} WHERE trigger_id = ?", trigger_id)
+                cur.execute("DELETE FROM dbo.Triggers WHERE trigger_id = ?", trigger_id)
                 deleted = cur.rowcount
                 conn.commit()
         logger.debug("Deleted trigger id=%s affected=%s", trigger_id, deleted)
