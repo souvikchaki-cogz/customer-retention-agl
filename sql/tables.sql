@@ -23,7 +23,7 @@ CREATE TABLE [dbo].[agl_structured] (
     [prev_bill_amount]             FLOAT(53)                     NULL,       -- Prior quarter bill ($AUD) — used for bill shock delta
     [conditional_discount_removed] BIT           NOT NULL DEFAULT 0,        -- 1 = pay-on-time or loyalty discount expired
     [property_listing_status]      VARCHAR(20)                   NULL,       -- NULL | 'FOR_SALE' | 'FOR_RENT'  (from property market scan)
-    [property_listing_date]        DATE                          NULL,       -- Date address appeared on Domain / REA
+    [property_listing_date]        DATE                          NULL,       -- Date address appeared on listing platforms
     [is_life_support]              BIT           NOT NULL DEFAULT 0,        -- AER protected class — lead generation MUST be suppressed
     [is_hardship]                  BIT           NOT NULL DEFAULT 0,        -- On AGL hardship program — lead generation MUST be suppressed
     [fuel_type]                    VARCHAR(10)                   NULL,       -- 'ELECTRICITY' | 'GAS' | 'DUAL'
@@ -166,7 +166,7 @@ CREATE TABLE [dbo].[agl_discovery_cards] (
 
 -- -----------------------------------------------------------------------------
 -- agl_property_market_signals   *** NEW — no banking equivalent ***
--- Populated by a scheduled job that scans Domain.com.au / REA Group listings
+-- Populated by a scheduled job that scans listings platforms for properties matching customer service addresses.
 -- and fuzzy-matches listed property addresses against agl_structured.service_address.
 --
 -- This is the foundation for PROACTIVE churn detection:
@@ -188,7 +188,7 @@ CREATE TABLE [dbo].[agl_property_market_signals] (
     [listing_address] NVARCHAR(255)                NULL,       -- Address as it appeared on the listing (may differ slightly)
     [match_score]     FLOAT                        NULL,       -- Fuzzy match confidence [0, 1]
     [listing_status]  VARCHAR(20)                  NOT NULL,   -- 'FOR_SALE' | 'FOR_RENT'
-    [listing_url]     NVARCHAR(512)                NULL,       -- URL of the listing on Domain / REA
+    [listing_url]     NVARCHAR(512)                NULL,       -- URL of the listing on listing platforms
     [listing_price]   NVARCHAR(100)                NULL,       -- Price or rent (as string — may be 'Contact Agent')
     [detected_ts]     DATETIME2                    NOT NULL,   -- When the match was detected
     [actioned]        BIT           NOT NULL DEFAULT 0,        -- 0 = pending lead generation, 1 = lead card emitted
