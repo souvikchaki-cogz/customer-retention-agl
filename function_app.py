@@ -483,7 +483,7 @@ def activity_evaluate_rules(payload: dict) -> dict:
 @app.activity_trigger(input_name="payload")
 def activity_write_lead_card(payload: dict) -> dict:
     """
-    Persists a retention lead card to dbo.lead_cards.
+    Persists a retention lead card to dbo.agl_lead_cards.
     Only called when the churn score exceeds LEAD_SCORE_THRESHOLD.
 
     The explanation_text is PII-scrubbed before storage.
@@ -497,7 +497,7 @@ def activity_write_lead_card(payload: dict) -> dict:
         logger.info("Writing retention lead card for customer_id: %s", customer_id)
         sql_client = SqlClient()
         sql = """
-        INSERT INTO lead_cards (
+        INSERT INTO agl_lead_cards (
             customer_id, note_id, score, rule_hits_json, structured_snapshot_json,
             explanation_text, agent_version, ruleset_version, created_ts
         )
