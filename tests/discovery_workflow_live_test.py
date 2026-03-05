@@ -23,7 +23,7 @@ def check_env_vars():
 if __name__ == "__main__":
     check_env_vars()
 
-    print("\n▶️  Calling Azure OpenAI to generate synthetic triggers for home loan churn...")
+    print("\n▶️  Calling Azure OpenAI to generate synthetic triggers for AGL energy churn...")
 
     try:
         # Get the OpenAI client

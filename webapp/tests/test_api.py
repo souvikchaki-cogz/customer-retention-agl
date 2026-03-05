@@ -33,7 +33,7 @@ class TestHealthEndpoint:
 # ---------------------------------------------------------------------------
 class TestEvaluateEndpoint:
 
-    VALID_PAYLOAD = {"customer_id": "CUST0001", "note": "I want to close my loan."}
+    VALID_PAYLOAD = {"customer_id": "CUST0001", "note": "I want to cancel my electricity account and get a final meter read."}
 
     def test_evaluate_returns_evaluate_response_shape(self):
         mock_start_resp = {
@@ -115,14 +115,14 @@ class TestPredictEndpoint:
 
     MOCK_TRIGGERS = [
         {
-            "description": "Exploring Loan Refinancing",
-            "example_phrases": "shopping for rates, better deal elsewhere",
-            "narrative_explanation": "Customers comparing rates show churn intent.",
-            "support": {"value": 0.15, "explanation": "15% of at-risk customers."},
-            "lift": {"value": 2.5, "explanation": "2.5x more likely to churn."},
-            "odds_ratio": {"value": 3.1, "explanation": "3.1x higher odds."},
-            "p_value": 0.002,
-            "fdr": 0.005
+            "description": "Move-Out Intent",
+            "example_phrases": "final meter read, moving house, close my account, selling the property",
+            "narrative_explanation": "Customers requesting final meter reads or mentioning a property sale are near-certain churners. Without a seamless account transfer offer, these customers are lost by default.",
+            "support": {"value": 0.18, "explanation": "18% of at-risk customers show move-out signals."},
+            "lift": {"value": 4.2, "explanation": "4.2x more likely to churn than the average customer."},
+            "odds_ratio": {"value": 6.1, "explanation": "6.1x higher odds of account closure."},
+            "p_value": 0.0001,
+            "fdr": 0.0002
         }
     ]
 
@@ -133,7 +133,7 @@ class TestPredictEndpoint:
         data = response.json()
         assert "triggers" in data
         assert len(data["triggers"]) == 1
-        assert data["triggers"][0]["description"] == "Exploring Loan Refinancing"
+        assert data["triggers"][0]["description"] == "Move-Out Intent"
 
     def test_predict_failure_returns_500(self):
         with patch("webapp.app.main.generate_triggers", side_effect=Exception("OpenAI down")):
@@ -148,8 +148,8 @@ class TestGetTriggersEndpoint:
 
     def test_get_triggers_returns_list(self):
         mock_rows = [
-            {"id": 1, "phrase": "Loan tenure is between 1-6 years", "severity": "CORE"},
-            {"id": 2, "phrase": "Asking how to close their loan", "severity": "NOTE"},
+            {"id": 1, "phrase": "Customer requesting final meter read ahead of moving out", "severity": "HIGH"},
+            {"id": 2, "phrase": "Customer actively comparing energy retailers", "severity": "HIGH"},
         ]
         with patch("webapp.app.main.fetch_existing_triggers", return_value=mock_rows):
             response = client.get("/api/triggers")
@@ -171,8 +171,8 @@ class TestGetTriggersEndpoint:
 class TestApproveEndpoint:
 
     VALID_APPROVE_PAYLOAD = {
-        "phrase": "Customer wants to refinance elsewhere",
-        "example_phrases": "looking at competitors, want to switch lender",
+        "phrase": "Customer asking about contract exit and cooling off period",
+        "example_phrases": "cooling off period, how do I exit my contract, switching retailer",
         "support": 0.15,
         "lift": 2.5,
         "odds_ratio": 3.5,
@@ -185,7 +185,7 @@ class TestApproveEndpoint:
             response = client.post("/api/triggers/approve", json=self.VALID_APPROVE_PAYLOAD)
         assert response.status_code == 200
         data = response.json()
-        assert data["phrase"] == "Customer wants to refinance elsewhere"
+        assert data["phrase"] == "Customer asking about contract exit and cooling off period"
         assert data["inserted"] is True
         assert data["severity"] in ("HIGH", "MEDIUM", "LOW")
 
