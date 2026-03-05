@@ -1,97 +1,150 @@
-version: "0.1.0"
-confidence_floor: 0.6 # AOAI hit must be ≥ this confidence
+version: "1.0.0"
+confidence_floor: 0.6
 evidence_guard:
-  min_chars: 4 # ignore 1–3 char “evidence”
+  min_chars: 4
 weights:
-  rate_diff: 0.30
-  tenure: 0.10
+  # Move-out scenario carries highest weight (near-certain churn)
+  moveout_risk: 0.40
+  bill_shock_risk: 0.20
+  property_sale_risk: 0.35   # proactive: cross-referenced property market signal
+  no_concession_risk: 0.15
+
 text_rules:
-  T1_REQUEST_STATEMENT:
+
+  # ── SCENARIO 2: MOVE-OUT / LIFE EVENT (Very High churn intent) ──────────────
+
+  T1_FINAL_METER_READ:
     id: "T1"
-    description: "Requesting a statement on their transaction account (e.g., to check household expenses)."
-    weight: 0.20
+    description: "Requesting a final meter read or final bill ahead of moving out."
+    weight: 0.50
     phrase_hints:
-      - "statement for my transaction account"
-      - "bank statement for expenses"
-      - "download statement to check spending"
+      - "final meter read"
+      - "final bill"
+      - "last bill before I move"
+      - "close my account"
+      - "disconnection date"
     negations:
-      - "monthly e-statement signup" # avoid admin-only cases
+      - "interim meter read"   # routine, not move-out
 
-  T2_REQUEST_PAYOUT_FIGURE:
+  T2_MOVE_OUT_REQUEST:
     id: "T2"
-    description: "Requesting a loan payout (payoff) figure."
-    weight: 0.35
+    description: "Customer explicitly stating they are moving out of the property."
+    weight: 0.55
     phrase_hints:
-      - "payout figure"
-      - "payoff amount"
-      - "how much to close the loan"
+      - "moving out"
+      - "moving house"
+      - "we're selling the property"
+      - "selling the house"
+      - "moving interstate"
+      - "property is being rented out"
+      - "settlement date"
+      - "lease is ending"
 
-  T3_HOW_TO_CLOSE_LOAN:
+  T3_ACCOUNT_TRANSFER_OR_CLOSURE:
     id: "T3"
-    description: "Asking how to close their loan and who to speak with."
+    description: "Asking about transferring, closing, or disconnecting the energy account."
     weight: 0.45
     phrase_hints:
-      - "how do I close my loan"
-      - "who do I speak to to close"
-      - "process to close mortgage"
+      - "transfer my account"
+      - "close my account"
+      - "disconnect my service"
+      - "cancel my electricity"
+      - "how do I cancel"
+      - "notice period to close"
+    negations:
+      - "transfer to solar"   # solar upgrade, not closure
 
-  T4_BREAKCOSTS_AND_FEES:
+  T4_CREDIT_REFUND_REQUEST:
     id: "T4"
-    description: "Asking about break costs and fees involved with closing their loan."
-    weight: 0.40
-    phrase_hints:
-      - "break cost"
-      - "early termination fee"
-      - "fee for closing early"
-
-  T5_WHAT_IS_LVR:
-    id: "T5"
-    description: "Asking what their loan to value ratio (LVR) is."
-    weight: 0.20
-    phrase_hints:
-      - "what is my lvr"
-      - "loan to value ratio"
-      - "current lvr"
-
-  T6_CHANGE_IN_CIRCUMSTANCES:
-    id: "T6"
-    description: "Mentioning change in circumstances (divorce, moving, buying a new property)."
-    weight: 0.30
-    phrase_hints:
-      - "change in circumstances"
-      - "moving house"
-      - "getting divorced"
-      - "buying another property"
-
-  T7_RETENTION_OR_SWITCH_UNSUCCESSFUL:
-    id: "T7"
-    description: "Recent HL retention/switch product attempt was unsuccessful."
+    description: "Asking about a credit balance refund, typically preceding account closure."
     weight: 0.35
     phrase_hints:
-      - "retention attempt unsuccessful"
-      - "switch product unsuccessful"
-      - "couldn't switch to"
+      - "refund my credit"
+      - "get my credit back"
+      - "outstanding credit balance"
+      - "how do I get my refund"
+
+  T5_LANDLORD_TENANT_CHANGE:
+    id: "T5"
+    description: "Mentioning a change in tenancy, landlord, or property ownership."
+    weight: 0.40
+    phrase_hints:
+      - "new tenants moving in"
+      - "property changing hands"
+      - "landlord is selling"
+      - "new owner"
+      - "deceased estate"
+      - "estate administration"
+
+  # ── SCENARIO 1: BILL SHOCK / PRICE COMPARISON (Medium-High churn intent) ────
+
+  T6_BILL_SHOCK_COMPLAINT:
+    id: "T6"
+    description: "Customer expressing shock or distress at a higher-than-expected bill."
+    weight: 0.35
+    phrase_hints:
+      - "bill is too high"
+      - "my bill doubled"
+      - "shocked by my bill"
+      - "this is way more than last quarter"
+      - "can't afford this bill"
+      - "bill increased significantly"
     negations:
-      - "successful" # avoid positives
+      - "estimate"  # avoid flagging estimated-bill queries
 
-  T8_INTEREST_ONLY_UNSUCCESSFUL:
+  T7_COMPARING_RETAILERS:
+    id: "T7"
+    description: "Customer actively comparing AGL against other energy retailers."
+    weight: 0.45
+    phrase_hints:
+      - "shopping around"
+      - "comparing retailers"
+      - "cheaper provider"
+      - "better rates elsewhere"
+      - "Energy Made Easy"
+      - "found a cheaper plan"
+      - "competitor is offering"
+    negations:
+      - "energy made easy account"  # admin use, not comparison
+
+  T8_SWITCHING_PROCESS_ENQUIRY:
     id: "T8"
-    description: "Recent interest-only product request unsuccessful."
-    weight: 0.30
+    description: "Asking about the process or timeframe for switching to another energy retailer."
+    weight: 0.45
     phrase_hints:
-      - "interest only request declined"
-      - "interest-only unsuccessful"
+      - "how do I switch"
+      - "how long to transfer"
+      - "switching retailer"
+      - "cooling off period"
+      - "exit fee"
+      - "contract end date"
 
-  T9_PRODUCT_ENQUIRY_UNSUCCESSFUL:
+  T9_PLAN_OR_DISCOUNT_ENQUIRY:
     id: "T9"
-    description: "Recent HL product enquiry unsuccessful."
+    description: "Asking whether better plans, discounts, or tariffs are available."
+    weight: 0.25
+    phrase_hints:
+      - "any better plans"
+      - "what discounts are available"
+      - "conditional discount expired"
+      - "move to month to month"
+      - "pay on time discount"
+      - "solar feed-in tariff"
+
+  T10_HARDSHIP_SWITCH_RISK:
+    id: "T10"
+    description: "Customer mentioning hardship or inability to pay, a precursor to switching."
     weight: 0.30
     phrase_hints:
-      - "product enquiry unsuccessful"
-      - "application unsuccessful"
-      - "request declined"
+      - "can't afford"
+      - "hardship"
+      - "payment plan"
+      - "struggling to pay"
+      - "cost of living"
+      - "defer my payment"
+
 decay:
-  half_life_days: 30
+  half_life_days: 21   # energy switching is faster than mortgage refinancing
 exclusions:
   - "test account"
   - "dummy data"

@@ -60,14 +60,15 @@ def get_meaningful_explanation(explanations: list) -> str:
         return " | ".join(explanations)[:1000]
 
     system_prompt = (
-        "You are a helpful assistant for a bank. "
-        "Your task is to summarize the key reasons why a customer might be at risk of leaving the bank, "
-        "based on a list of contributing factors. Present these factors as a concise, human-readable sentence."
+        "You are a helpful assistant for AGL, an Australian energy retailer. "
+        "Your task is to summarize the key reasons why an electricity customer might be "
+        "at risk of switching to another energy retailer, "
+        "based on a list of contributing signals. Present these as a concise, human-readable sentence."
     )
 
     user_prompt = (
-        "Please summarize the following points into a single, easy-to-understand sentence, "
-        "explaining why this customer has been flagged as a retention risk:\n\n"
+        "Please summarize the following signals into a single, easy-to-understand sentence, "
+        "explaining why this customer has been flagged as an energy churn risk:\n\n"
         + "\n".join(explanations)
     )
 
@@ -100,38 +101,47 @@ def score_event(ruleset: dict, text_result: dict, features: dict):
     text_score = 0.0
     explanations = []
 
-    # --- Structured Rules Implementation ---
-    remaining_years = features.get("remaining_years")
-    if remaining_years is not None and 1.0 <= remaining_years <= 6.0:
-        structured_score += weights.get("tenure_risk", 0.15)
-        explanations.append(f"Loan tenure is critical ({remaining_years:.1f} years remaining)")
+    # ── STRUCTURED SIGNAL 1: Property listed for sale/rent (PROACTIVE - highest weight) ──
+    # Cross-referenced from property market data against service address.
+    # A property appearing on Domain/REA that matches a customer address is a near-certain
+    # move-out predictor BEFORE the customer even contacts AGL.
+    property_listing_status = features.get("property_listing_status")  # e.g. "FOR_SALE", "FOR_RENT", None
+    if property_listing_status in ("FOR_SALE", "FOR_RENT"):
+        structured_score += weights.get("property_sale_risk", 0.35)
+        explanations.append(f"Service address detected as listed {property_listing_status.replace('_', ' ').lower()} on property market")
 
-    if features.get("is_broker_originated"):
-        structured_score += weights.get("broker_risk", 0.1)
-        explanations.append("Broker-originated loan")
-
-    advertised_rate = features.get("advertised_rate")
-    current_rate = features.get("interest_rate")
-    if advertised_rate is not None and current_rate is not None and current_rate > (advertised_rate + 0.5):
-        structured_score += weights.get("rate_delta_risk", 0.2)
-        explanations.append(f"Rate ({current_rate:.2f}%) is >0.5% above advertised ({advertised_rate:.2f}%)")
-
+    # ── STRUCTURED SIGNAL 2: Contract end date within 60 days ──
+    # Customers off contract are far more likely to compare and switch.
     try:
-        if features.get("is_interest_only"):
-            end_date_str = features.get("interest_only_end_date")
-            if end_date_str:
-                end_date = datetime.fromisoformat(str(end_date_str).split(" ")[0]).date()
-                days_to_expiry = (end_date - datetime.now(timezone.utc).date()).days
-                if 0 <= days_to_expiry <= 90:
-                    structured_score += weights.get("io_expiry_risk", 0.25)
-                    explanations.append(f"Interest-only term expires in {days_to_expiry} days")
+        contract_end_str = features.get("contract_end_date")
+        if contract_end_str:
+            contract_end = datetime.fromisoformat(str(contract_end_str).split(" ")[0]).date()
+            days_to_expiry = (contract_end - datetime.now(timezone.utc).date()).days
+            if 0 <= days_to_expiry <= 60:
+                structured_score += weights.get("contract_expiry_risk", 0.20)
+                explanations.append(f"Energy contract expires in {days_to_expiry} days")
     except (ValueError, TypeError) as e:
-        logging.warning("Could not parse interest_only_end_date: %s", e)
+        logging.warning("Could not parse contract_end_date: %s", e)
 
+    # ── STRUCTURED SIGNAL 3: Bill amount increased >25% quarter-on-quarter ──
+    last_bill = features.get("last_bill_amount")
+    prev_bill = features.get("prev_bill_amount")
+    if last_bill is not None and prev_bill is not None and prev_bill > 0:
+        bill_increase_pct = (last_bill - prev_bill) / prev_bill
+        if bill_increase_pct > 0.25:
+            structured_score += weights.get("bill_shock_risk", 0.20)
+            explanations.append(f"Bill increased {bill_increase_pct:.0%} quarter-on-quarter (${prev_bill:.0f} → ${last_bill:.0f})")
+
+    # ── STRUCTURED SIGNAL 4: Conditional discount recently removed or expired ──
+    # Removal of a pay-on-time or loyalty discount often triggers immediate comparison behaviour.
+    if features.get("conditional_discount_removed"):
+        structured_score += weights.get("no_concession_risk", 0.15)
+        explanations.append("Conditional discount recently removed or expired")
+
+    # ── TEXT SIGNAL SCORING (unchanged mechanics) ──
     text_hits_json = []
     for h in hits:
         conf = float(h.get("confidence", 0))
-        # Optionally: if conf < floor: continue  # (unified via config if logic is used)
         rid = h["rule_id"]
         w = ruleset.get("text_rules", {}).get(rid, {}).get("weight", 0.4)
         text_score += conf * w

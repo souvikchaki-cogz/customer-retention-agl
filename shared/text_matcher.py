@@ -37,7 +37,7 @@ def match_text_rules(text: str, ruleset: Dict[str, Any]) -> Dict[str, Any]:
     catalog = _build_catalog(ruleset)
 
     system = (
-        "You are a precise text-trigger detector for a bank.\n"
+        "You are a precise text-trigger detector for AGL, an Australian energy retailer.\n"
         "Use ONLY these rule IDs and meanings:\n"
         f"{json.dumps(catalog, ensure_ascii=False)}\n\n"
         'Return JSON exactly: {"rule_hits":[{"rule_id":"<ID>","confidence":0.0,"description":"<description field value>","evidence_text":"<substring or substrings if multiple evidences>","explanation":"<explanation of why this has given confidence>"}]}\n'

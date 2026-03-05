@@ -32,10 +32,11 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
 
     # 1. Add hardcoded customer profile rules (always returned regardless of DB config)
     core_systems_rules = [
-      "Loan tenure is between 1-6 years",
-      "Broker originated loan",
-      "Interest rate is 0.5% higher than advertised rate",
-      "Interest only loan term coming to an end"
+        "Service address detected as listed for sale on property market",   # Proactive signal
+        "Service address detected as listed for rent on property market",   # Proactive signal
+        "Energy contract expiring within 60 days",
+        "Bill amount increased >25% quarter-on-quarter",
+        "Conditional discount recently removed or expired",
     ]
 
     for rule in core_systems_rules:
