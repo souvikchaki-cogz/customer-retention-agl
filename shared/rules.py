@@ -23,7 +23,7 @@ def load_active_ruleset():
         try:
             logging.info("Attempting to load ruleset from SQL database...")
             sql_client = SqlClient()
-            query = "SELECT TOP 1 ruleset_yaml, version FROM dbo.rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
+            query = "SELECT TOP 1 ruleset_yaml, version FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
             result = sql_client.fetch_one(query)
             if result and result.get('ruleset_yaml'):
                 logging.info("Successfully loaded active ruleset from SQL.")

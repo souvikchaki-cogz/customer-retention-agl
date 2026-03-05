@@ -17,7 +17,7 @@ def write_discovery_cards(sql_client: SqlClient, triggers: list):
     """
     for trigger in triggers:
         sql = """
-        INSERT INTO discovery_cards (phrase, support, lift, odds_ratio, fdr, examples_json, status, created_ts)
+        INSERT INTO agl_discovery_cards (phrase, support, lift, odds_ratio, fdr, examples_json, status, created_ts)
         VALUES (?, ?, ?, ?, ?, ?, 'CANDIDATE', SYSDATETIME())
         """
         # Map the richer trigger format from the shared function to the database schema
@@ -42,7 +42,7 @@ def main():
     sql_client = SqlClient()
     
     # Get existing rules to avoid duplicates
-    current_ruleset_query = "SELECT ruleset_yaml FROM rules_library WHERE status = 'ACTIVE'"
+    current_ruleset_query = "SELECT ruleset_yaml FROM agl_rules_library WHERE status = 'ACTIVE'"
     current_ruleset_result = sql_client.fetch_one(current_ruleset_query)
     existing_phrases = []
     if current_ruleset_result:

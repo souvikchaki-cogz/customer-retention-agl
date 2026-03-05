@@ -24,7 +24,7 @@ def _get_conn_str() -> str:
 
 def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
     """
-    Fetch rules from the rules_library table and combine them with
+    Fetch rules from the agl_rules_library table and combine them with
     hardcoded customer profile rules.
     """
     rows: List[Dict[str, Any]] = []
@@ -55,12 +55,12 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
         return rows
 
     # 2. Fetch rules from database
-    query = "SELECT TOP 1 ruleset_yaml FROM dbo.rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
+    query = "SELECT TOP 1 ruleset_yaml FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
     conn_str = _get_conn_str()
     try:
         with pyodbc.connect(conn_str) as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT version, ruleset_yaml FROM dbo.rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC")
+                cur.execute("SELECT version, ruleset_yaml FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC")
                 active_ruleset = cur.fetchone()
 
                 if active_ruleset:
@@ -76,14 +76,14 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
                                 })
                                 rule_id_counter += 1
     except Exception as exc:
-        logger.error("Failed to fetch rules from rules_library: %s", exc)
+        logger.error("Failed to fetch rules from agl_rules_library: %s", exc)
 
     return rows
 
 
 def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odds_ratio: float) -> bool:
     """
-    Rewrite: Insert a new ACTIVE ruleset row in dbo.rules_library with an updated ruleset_yaml
+    Rewrite: Insert a new ACTIVE ruleset row in dbo.agl_rules_library with an updated ruleset_yaml
     that includes a newly approved text rule.
 
     Contract:
@@ -154,7 +154,7 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
         logger.error("Azure SQL config incomplete (AZSQL_SERVER / AZSQL_DB not set)")
         return False
     if pyodbc is None:  # type: ignore
-        logger.error("pyodbc not installed; cannot update rules_library")
+        logger.error("pyodbc not installed; cannot update agl_rules_library")
         return False
     try:
         weight = round(float(odds_ratio) / 10.0, 3)
@@ -169,13 +169,13 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
             with conn.cursor() as cur:  # type: ignore
                 # 1) Fetch current active ruleset (fallback to latest if no ACTIVE)
                 cur.execute(
-                    "SELECT TOP 1 version, ruleset_yaml FROM dbo.rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
+                    "SELECT TOP 1 version, ruleset_yaml FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
                 )
                 row = cur.fetchone()
                 if not row:
                     logger.info("No ACTIVE ruleset; falling back to most recent by activated_ts")
                     cur.execute(
-                        "SELECT TOP 1 version, ruleset_yaml FROM dbo.rules_library ORDER BY activated_ts DESC"
+                        "SELECT TOP 1 version, ruleset_yaml FROM dbo.agl_rules_library ORDER BY activated_ts DESC"
                     )
                     row = cur.fetchone()
 
@@ -243,9 +243,9 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
 
                 # 7) Deactivate all existing rows, then insert new ACTIVE ruleset
                 try:
-                    cur.execute("UPDATE dbo.rules_library SET status = 'INACTIVE' WHERE status <> 'INACTIVE'")
+                    cur.execute("UPDATE dbo.agl_rules_library SET status = 'INACTIVE' WHERE status <> 'INACTIVE'")
                     insert_sql = (
-                        "INSERT INTO dbo.rules_library (version, status, activated_ts, ruleset_yaml) "
+                        "INSERT INTO dbo.agl_rules_library (version, status, activated_ts, ruleset_yaml) "
                         "VALUES (?, 'ACTIVE', ?, ?)"
                     )
                     activated_ts = datetime.utcnow()
@@ -266,12 +266,12 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
                 )
                 return True
     except Exception as exc:
-        logger.error("Unexpected failure updating rules_library: %s", exc)
+        logger.error("Unexpected failure updating agl_rules_library: %s", exc)
         return False
 
 
 def insert_trigger(phrase: str, severity: str) -> bool:
-    """Insert an approved trigger into dbo.Triggers.
+    """Insert an approved trigger into dbo.agl_triggers.
 
     Returns True on success, False on any failure (including missing config / driver).
     """
@@ -285,7 +285,7 @@ def insert_trigger(phrase: str, severity: str) -> bool:
     try:
         with pyodbc.connect(conn_str) as conn:  # type: ignore
             with conn.cursor() as cur:  # type: ignore
-                cur.execute("INSERT INTO dbo.Triggers (trigger_text, severity) VALUES (?, ?)", phrase, severity)
+                cur.execute("INSERT INTO dbo.agl_triggers (trigger_text, severity) VALUES (?, ?)", phrase, severity)
                 conn.commit()
         logger.debug("Inserted trigger phrase=%s severity=%s", phrase, severity)
         return True
@@ -306,7 +306,7 @@ def delete_trigger(trigger_id: int) -> bool:
     try:
         with pyodbc.connect(conn_str) as conn:  # type: ignore
             with conn.cursor() as cur:  # type: ignore
-                cur.execute("DELETE FROM dbo.Triggers WHERE trigger_id = ?", trigger_id)
+                cur.execute("DELETE FROM dbo.agl_triggers WHERE trigger_id = ?", trigger_id)
                 deleted = cur.rowcount
                 conn.commit()
         logger.debug("Deleted trigger id=%s affected=%s", trigger_id, deleted)
