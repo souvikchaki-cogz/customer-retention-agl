@@ -9,11 +9,12 @@ from function_app import activity_fetch_structured as fetch_structured
 # --- Prerequisites Check ---
 def check_env_vars():
     """Checks if the required database environment variables are set."""
-    required_vars = ["AZSQL_SERVER", "AZSQL_DB", "AZSQL_UID", "AZSQL_PWD"]
+    required_vars = ["AZSQL_SERVER", "AZSQL_DB"]
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     if missing_vars:
         print("Error: The following environment variables are not set:", ", ".join(missing_vars))
-        print("Please run the 'export' commands in your terminal before running this test.")
+        print("Please set the required environment variables before running this test.")
+        print("Note: This repo uses Microsoft Entra Managed Identity — no UID/password required.")
         sys.exit(1)
     print("✅ Environment variables are set.")
 
