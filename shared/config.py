@@ -21,7 +21,6 @@ CONFIDENCE_FLOOR = _get_float("CONFIDENCE_FLOOR", "0.60")
 EVIDENCE_MIN_LEN = _get_int("EVIDENCE_MIN_LEN", "4")
 
 # Database and OpenAI config
-# Authentication: Microsoft Entra Managed Identity (ActiveDirectoryMsi) — no UID/password required
 AZSQL_SERVER = os.getenv("AZSQL_SERVER", "")
 AZSQL_DB = os.getenv("AZSQL_DB", "")
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT", "")

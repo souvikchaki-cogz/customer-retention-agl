@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 
 def _get_conn_str() -> str:
-    """Always uses Microsoft Entra Managed Identity. UID/password auth is not supported."""
     driver = AZSQL_DRIVER or "{ODBC Driver 18 for SQL Server}"
     return (
         f"DRIVER={{{driver}}};SERVER={AZSQL_SERVER};DATABASE={AZSQL_DB};"
