@@ -148,7 +148,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const dataAttr = row.getAttribute('data-trigger');
       if (!dataAttr) return null;
       const trigger = JSON.parse(dataAttr.replace(/&apos;/g, "'"));
-      
+
       // The approve endpoint expects a flat structure, so we create it here.
       return {
         phrase: trigger.description, // Map description to phrase
@@ -247,7 +247,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const data = await resp.json();
       evaluateOutput.innerHTML = `<p class="text-green-600">Evaluation triggered for Customer ID: ${data.customer_id}</p>`;
-      
+
       if (data.instance_id && data.status_query_url) {
         pollEvaluationStatus(data.instance_id, data.status_query_url);
       } else {
@@ -344,39 +344,107 @@ document.addEventListener('DOMContentLoaded', () => {
       const ruleHits = Array.isArray(result.rule_hits_json) ? result.rule_hits_json : [];
       const snapshot = result.structured_snapshot_json || {};
 
-      // Customer Notes/Interactions list
+      // ── Left panel: Customer Notes / Interactions (LLM text rule hits) ─────
       const notesList = ruleHits.length
-        ? ruleHits.map(r => listItem(!!r.hit, r.description || r.rule_id || 'Rule', r.evidence_text || r.explanation || '')).join('')
-        : '<li class="text-sm text-gray-500 italic">No rule hits.</li>';
+        ? ruleHits.map(r => listItem(
+          !!r.hit,
+          r.description || r.rule_id || 'Rule',
+          r.evidence_text || r.explanation || ''
+        )).join('')
+        : '<li class="text-sm text-gray-500 italic">No text triggers matched.</li>';
 
-      // Core Systems checks
-      const tenure = Number(snapshot.loan_tenure ?? snapshot.remaining_years);
-      const tenureKnown = Number.isFinite(tenure);
-      const tenureOk = tenureKnown && tenure >= 1 && tenure <= 6;
+      // ── Right panel: AGL Core Systems / Customer Profile ──────────────────
+      // These mirror the four structured scoring signals in shared/rules.py → score_event()
 
-      const brokerOk = !!snapshot.is_broker_originated;
+      // Signal 1: Property listed for sale or rent on the property market
+      // Source: agl_structured.property_listing_status (set by property market scanner job)
+      // Weight: +0.35 (highest — near-certain move-out)
+      const listingStatus = snapshot.property_listing_status;
+      const isForSale = listingStatus === 'FOR_SALE';
+      const isForRent = listingStatus === 'FOR_RENT';
+      const propertySignalActive = isForSale || isForRent;
+      const propertySignalLabel = isForSale
+        ? 'Service address listed FOR SALE on property market'
+        : isForRent
+          ? 'Service address listed FOR RENT on property market'
+          : 'No property market listing detected';
+      const propertySignalSubtext = propertySignalActive && snapshot.property_listing_date
+        ? `Listed on: ${snapshot.property_listing_date}`
+        : propertySignalActive
+          ? 'Property market signal active'
+          : snapshot.service_address || '';
 
-      const advRate = Number(snapshot.advertised_rate);
-      const intRate = Number(snapshot.interest_rate);
-      const rateOk = Number.isFinite(intRate) && Number.isFinite(advRate) && ((intRate - advRate) > 0.5);
+      // Signal 2: Energy contract expiring within 60 days
+      // Source: agl_structured.contract_end_date
+      // Weight: +0.20
+      const contractEndRaw = snapshot.contract_end_date;
+      const daysToContract = contractEndRaw
+        ? Math.round((new Date(contractEndRaw) - new Date()) / 86_400_000)
+        : null;
+      const contractExpiryActive = daysToContract !== null
+        && daysToContract >= 0
+        && daysToContract <= 60;
+      const contractSubtext = daysToContract !== null
+        ? contractExpiryActive
+          ? `Contract ends in ${daysToContract} day${daysToContract === 1 ? '' : 's'} (${contractEndRaw})`
+          : `Contract end: ${contractEndRaw} (${daysToContract} days away)`
+        : snapshot.contract_type === 'VARIABLE' || !contractEndRaw
+          ? 'Month-to-month — no fixed end date'
+          : 'No contract end date on record';
 
-      const remainingYears = Number(snapshot.remaining_years);
-      const ioEndingOk = Number.isFinite(remainingYears) && (remainingYears < 5);
+      // Signal 3: Bill amount increased >25% quarter-on-quarter (bill shock)
+      // Source: agl_structured.last_bill_amount vs prev_bill_amount
+      // Weight: +0.20
+      const lastBill = Number(snapshot.last_bill_amount);
+      const prevBill = Number(snapshot.prev_bill_amount);
+      const billsKnown = Number.isFinite(lastBill) && Number.isFinite(prevBill) && prevBill > 0;
+      const billDeltaPct = billsKnown ? (lastBill - prevBill) / prevBill : null;
+      const billShockActive = billsKnown && billDeltaPct > 0.25;
+      const billShockSubtext = billsKnown
+        ? `Last bill: $${lastBill.toFixed(0)}, Previous: $${prevBill.toFixed(0)} `
+        + `(${billDeltaPct >= 0 ? '+' : ''}${(billDeltaPct * 100).toFixed(0)}%)`
+        : 'Bill data not available';
+
+      // Signal 4: Conditional discount recently removed or expired
+      // Source: agl_structured.conditional_discount_removed
+      // Weight: +0.15
+      const discountRemovedActive = !!snapshot.conditional_discount_removed;
+      const discountRemovedSubtext = discountRemovedActive
+        ? 'Pay-on-time or loyalty discount has been removed'
+        : 'Conditional discount is active';
 
       const coreList = [
-        listItem(tenureKnown ? tenureOk : false, 'Loan tenure 1–6 years', tenureKnown ? `Loan Tenure: ${tenure}` : 'Loan tenure not provided'),
-        listItem(brokerOk, 'Broker originated loan'),
-        listItem(rateOk, 'Interest rate is 0.5% higher than advertised rate', (Number.isFinite(intRate) && Number.isFinite(advRate)) ? `Interest rate: ${intRate}%, Advertised Rate: ${advRate}%` : 'Rate data incomplete'),
-        listItem(ioEndingOk, 'Interest-only loan term coming to an end', Number.isFinite(remainingYears) ? `Remaining Years: ${remainingYears}` : 'Remaining years not provided'),
+        listItem(
+          propertySignalActive,
+          propertySignalLabel,
+          propertySignalSubtext
+        ),
+        listItem(
+          contractExpiryActive,
+          'Energy contract expiring within 60 days',
+          contractSubtext
+        ),
+        listItem(
+          billShockActive,
+          'Bill increased >25% quarter-on-quarter',
+          billShockSubtext
+        ),
+        listItem(
+          discountRemovedActive,
+          'Conditional discount recently removed or expired',
+          discountRemovedSubtext
+        ),
       ].join('');
 
-      // Recommended Action
+      // ── Lead Card / Score explanation ─────────────────────────────────────
       const shouldEmit = !!result.should_emit;
       const explanationBullets = typeof result.explanation_text === 'string'
         ? result.explanation_text.split('|').map(s => s.trim()).filter(Boolean)
         : [];
       const explanationListHtml = explanationBullets.length
-        ? `<ul class="list-disc list-inside mt-2 text-sm text-gray-700">${explanationBullets.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+        ? `<ul class="list-disc list-inside mt-2 text-sm text-gray-700">
+             ${explanationBullets.map(item => `<li>${escapeHtml(item)}</li>`).join('')}
+           </ul>`
         : '';
 
       const scoreExplanationHtml = `
@@ -384,14 +452,24 @@ document.addEventListener('DOMContentLoaded', () => {
           <details>
             <summary class="cursor-pointer font-medium">How to interpret the score</summary>
             <div class="mt-2 space-y-2">
-              <p>The score is a "risk level" for a customer. The higher the score, the more signals the customer is giving that they might be looking to leave or refinance.</p>
+              <p>
+                The score is a churn risk level for this AGL customer.
+                The higher the score, the more signals the customer is showing
+                that they may be considering switching retailers or moving out.
+              </p>
               <dl>
-                <dt class="font-semibold">High Score (e.g., &gt; 0.8)</dt>
-                <dd class="pl-4 mb-2">A high-priority customer. The retention team should contact them immediately.</dd>
-                <dt class="font-semibold">Medium Score (e.g., 0.5 - 0.8)</dt>
-                <dd class="pl-4 mb-2">A potential risk. Keep an eye on this customer and perhaps reach out proactively.</dd>
-                <dt class="font-semibold">Low Score (e.g., &lt; 0.5)</dt>
-                <dd class="pl-4">A low-priority customer for retention efforts.</dd>
+                <dt class="font-semibold">High Score (&gt; 0.8)</dt>
+                <dd class="pl-4 mb-2">
+                  Critical priority — likely moving out or actively comparing.
+                  Retention team should contact immediately with a transfer or tailored offer.
+                </dd>
+                <dt class="font-semibold">Medium Score (0.5 – 0.8)</dt>
+                <dd class="pl-4 mb-2">
+                  Potential switch risk. Proactive outreach with a plan optimisation
+                  or discount offer is recommended within 1–2 weeks.
+                </dd>
+                <dt class="font-semibold">Low Score (&lt; 0.5)</dt>
+                <dd class="pl-4">Low priority for retention efforts at this time.</dd>
               </dl>
             </div>
           </details>
@@ -400,8 +478,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
       const actionHtml = shouldEmit ? `
         <div class="mt-6 border rounded-lg p-4 bg-green-50 border-green-200">
-          <h4 class="text-md font-semibold text-green-800">Lead Card</h4>
-          <p class="mt-1 text-sm text-gray-800"><span class="font-medium">Score:</span> ${typeof result.score === 'number' ? result.score.toFixed(2) : escapeHtml(result.score)}</p>
+          <h4 class="text-md font-semibold text-green-800">Retention Lead Card</h4>
+          <p class="mt-1 text-sm text-gray-800">
+            <span class="font-medium">Churn Score:</span>
+            ${typeof result.score === 'number' ? result.score.toFixed(2) : escapeHtml(result.score)}
+          </p>
           ${explanationListHtml}
           ${scoreExplanationHtml}
         </div>
@@ -416,11 +497,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
           <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="bg-white border rounded-lg p-4 shadow-sm">
-              <h4 class="text-md font-semibold text-gray-800 mb-2">From Customer Notes/Interactions</h4>
+              <h4 class="text-md font-semibold text-gray-800 mb-2">
+                From Customer Notes / Interactions
+              </h4>
               <ul class="list-none">${notesList}</ul>
             </div>
             <div class="bg-white border rounded-lg p-4 shadow-sm">
-              <h4 class="text-md font-semibold text-gray-800 mb-2">From Core Systems/Customer Profile</h4>
+              <h4 class="text-md font-semibold text-gray-800 mb-2">
+                From Core Systems / Customer Profile
+              </h4>
               <ul class="list-none">${coreList}</ul>
             </div>
           </div>
@@ -432,7 +517,9 @@ document.addEventListener('DOMContentLoaded', () => {
       console.error('Render evaluation result failed', e);
       return `
         <h4 class="text-md font-semibold mt-4">Evaluation Result (raw)</h4>
-        <pre class="bg-gray-100 p-3 rounded-md text-sm overflow-x-auto">${escapeHtml(JSON.stringify(result, null, 2))}</pre>
+        <pre class="bg-gray-100 p-3 rounded-md text-sm overflow-x-auto">
+          ${escapeHtml(JSON.stringify(result, null, 2))}
+        </pre>
       `;
     }
   }

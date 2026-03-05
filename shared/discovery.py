@@ -9,18 +9,25 @@ from .azure_openai import get_openai_client
 
 logger = logging.getLogger(__name__)
 
-PROMPT = """You are a data scientist creating synthetic data for a customer retention model at a bank, specifically for home loan products.
+PROMPT = """You are a data scientist creating synthetic data for a customer churn model 
+at AGL, an Australian electricity and gas retailer.
 
-Your task is to identify 5 high-level **themes** of customer behavior that indicate a risk of closing a home loan account.
+Your task is to identify 5 high-level **themes** of customer behaviour that indicate 
+a risk of switching to another energy retailer or closing their account.
 
-The phrases should be directly related to the following themes identified from real-world data: - Financial hardship or payment issues. - Loan inquiries and cancellations. - High-value transactions (e.g., large withdrawals). - Fraud and unauthorized transactions. - Rate and product-related discussions.
+The themes should be directly related to the following known churn drivers:
+- Move-out or life events (selling/renting property, moving interstate).
+- Bill shock or sudden cost increase.
+- Active price comparison behaviour (Energy Made Easy, competitor enquiries).
+- Conditional discount or concession removal.
+- Contract expiry or end-of-fixed-term switching window.
 
 For each of the 5 themes, you must provide:
-1.  A concise theme name under the key `"description"`.
-2.  A single string of representative, comma-separated phrases for that theme under the key `"example_phrases"`.
-3.  Synthetic but realistic statistics (`support`, `lift`, `odds_ratio`, `p_value`, `fdr`).
-4.  A unique, business-friendly **narrative explanation** under the key `"narrative_explanation"`.
-5.  A `metrics_explanation` object containing simple, business-friendly explanations for `support`, `lift`, and `odds_ratio`.
+1.  A concise theme name under the key "description".
+2.  A single string of representative, comma-separated phrases for that theme under the key "example_phrases".
+3.  Synthetic but realistic statistics (support, lift, odds_ratio, p_value, fdr).
+4.  A unique, business-friendly **narrative explanation** under the key "narrative_explanation".
+5.  A metrics_explanation object containing simple, business-friendly explanations for support, lift, and odds_ratio.
 
 The output must be a JSON object with a single key "triggers", which contains an array of 5 objects.
 
@@ -28,66 +35,49 @@ Example output format:
 {
   "triggers": [
     {
-      "description": "Exploring Loan Refinancing Options",
-      "example_phrases": "thinking of refinancing my mortgage, what are your current rates, can I get a payout figure",
-      "support": 150,
-      "lift": 3.5,
-      "odds_ratio": 4.2,
+      "description": "Move-Out Intent",
+      "example_phrases": "final meter read, moving house, selling the property, close my account",
+      "support": 120,
+      "lift": 4.2,
+      "odds_ratio": 6.1,
       "p_value": 0.0001,
       "fdr": 0.0003,
-      "narrative_explanation": "A significant number of customers are actively shopping for better rates. This behavior shows a strong intent to switch providers, making it a critical churn indicator as they are over 3 times more likely to leave.",
+      "narrative_explanation": "Customers requesting final meter reads or mentioning property sales are near-certain churners within days to weeks. Proactive outreach offering a seamless address transfer is the only effective retention lever.",
       "metrics_explanation": {
-        "support": "Indicates this theme appeared in 150 conversations last month.",
-        "lift": "Means customers showing this behavior are 3.5x more likely to churn than average.",
-        "odds_ratio": "Tells us the odds of churn are 4.2x higher when this theme is present vs. when it's not."
+        "support": "Represents the number of at-risk customers exhibiting this behaviour.",
+        "lift": "These customers are 4.2x more likely to churn compared to the average customer.",
+        "odds_ratio": "The odds of account closure are 6.1x higher when this signal is present."
       }
     }
   ]
 }
-"""
+
+Do not include any text outside the JSON object."""
 
 def _fallback_structured() -> List[Dict[str, Any]]:
     """Provides a fallback list of triggers matching the new data contract."""
     base = [
-        {
-            "description": "Considering refinancing for a better rate",
-            "example_phrases": "shopping for rates, competitor offers, what's your best rate",
-            "narrative_explanation": "Customers actively comparing rates show a clear intent to switch providers. This group is more likely to close their account than the average customer.",
-            "support": {
-                "value": 0.15,
-                "explanation": "Represents the proportion of at-risk customers exhibiting this behavior.",
-            },
-            "lift": {
-                "value": 2.5,
-                "explanation": "These customers are 2.5x more likely to churn compared to the average customer.",
-            },
-            "odds_ratio": {
-                "value": 3.1,
-                "explanation": "The odds of churn are 3.1x higher when this theme is present.",
-            },
-            "p_value": 0.002,
-            "fdr": 0.005,
-        },
-        {
-            "description": "Customer is experiencing financial hardship",
-            "example_phrases": "request hardship assistance, can I defer a payment, struggling to pay",
-            "narrative_explanation": "Mentions of financial difficulty are a strong indicator of churn risk, as the customer may no longer be able to service the loan.",
-            "support": {
-                "value": 0.08,
-                "explanation": "Represents the proportion of at-risk customers exhibiting this behavior.",
-            },
-            "lift": {
-                "value": 3.1,
-                "explanation": "These customers are 3.1x more likely to churn compared to the average customer.",
-            },
-            "odds_ratio": {
-                "value": 4.5,
-                "explanation": "The odds of churn are 4.5x higher when this theme is present.",
-            },
-            "p_value": 0.001,
-            "fdr": 0.003,
-        },
-    ]
+    {
+        "description": "Move-out or property sale intent",
+        "example_phrases": "final meter read, selling the property, moving house, close my account",
+        "narrative_explanation": "Customers requesting final meter reads or mentioning a property sale are near-certain churners. Without a seamless account transfer offer, these customers are lost by default.",
+        "support": {"value": 0.18, "explanation": "18% of churned customers showed this behaviour in their final interaction."},
+        "lift": {"value": 4.2, "explanation": "These customers are 4.2x more likely to churn than the average customer."},
+        "odds_ratio": {"value": 6.1, "explanation": "The odds of account closure are 6.1x higher when this signal is present."},
+        "p_value": 0.0001,
+        "fdr": 0.0002,
+    },
+    {
+        "description": "Bill shock leading to price comparison",
+        "example_phrases": "shopping around, comparing retailers, this bill is too high, Energy Made Easy",
+        "narrative_explanation": "A sudden bill increase triggers active comparison behaviour. In Australia, switching energy retailers is low-friction — once comparison starts, retention probability drops sharply without a proactive offer.",
+        "support": {"value": 0.22, "explanation": "22% of at-risk customers exhibit bill-shock-driven comparison behaviour."},
+        "lift": {"value": 3.1, "explanation": "These customers are 3.1x more likely to churn than the average customer."},
+        "odds_ratio": {"value": 4.5, "explanation": "The odds of churn are 4.5x higher when bill shock signals are present."},
+        "p_value": 0.0005,
+        "fdr": 0.001,
+    },
+]
     return base
 
 
