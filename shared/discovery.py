@@ -95,7 +95,7 @@ def generate_triggers(prompt: str = PROMPT, exclude_phrases: Optional[List[str]]
 
     payload = {
         "messages": [
-            {"role": "system", "content": "You are a helpful data scientist assistant for a bank."},
+            {"role": "system", "content": "You are a helpful data scientist assistant for AGL, an Australian energy retailer."},
             {"role": "user", "content": final_prompt},
         ],
         "temperature": 0.6,
