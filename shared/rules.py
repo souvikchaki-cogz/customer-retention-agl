@@ -103,7 +103,7 @@ def score_event(ruleset: dict, text_result: dict, features: dict):
 
     # ── STRUCTURED SIGNAL 1: Property listed for sale/rent (PROACTIVE - highest weight) ──
     # Cross-referenced from property market data against service address.
-    # A property appearing on Domain/REA that matches a customer address is a near-certain
+    # A property appearing on listing platforms that matches a customer address is a near-certain
     # move-out predictor BEFORE the customer even contacts AGL.
     property_listing_status = features.get("property_listing_status")  # e.g. "FOR_SALE", "FOR_RENT", None
     if property_listing_status in ("FOR_SALE", "FOR_RENT"):
