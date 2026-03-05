@@ -18,7 +18,6 @@ def check_env_vars():
     if missing_vars:
         print("Error: The following environment variables are not set:", ", ".join(missing_vars))
         print("Please set the required environment variables before running this test.")
-        print("Note: This repo uses Microsoft Entra Managed Identity — no UID/password required.")
         sys.exit(1)
     
     if os.getenv("USE_SQL_RULES") != "1":
