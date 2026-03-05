@@ -7,34 +7,24 @@ import pandas as pd
 from shared.config import (
     AZSQL_SERVER,
     AZSQL_DB,
-    AZSQL_UID,
-    AZSQL_PWD,
     AZSQL_DRIVER,
-    AZSQL_USE_ENTRA,
 )
 
 class SqlClient:
     def __init__(self):
         self.server = AZSQL_SERVER  # unified config value
         self.db = AZSQL_DB
-        self.uid = AZSQL_UID
-        self.pwd = AZSQL_PWD
         self.driver = AZSQL_DRIVER if AZSQL_DRIVER else "{ODBC Driver 18 for SQL Server}"
-        self.use_entra = AZSQL_USE_ENTRA == "1" if isinstance(AZSQL_USE_ENTRA, str) else bool(AZSQL_USE_ENTRA)
 
     def _conn(self):
         try:
             logging.info("Attempting to connect to database: %s on server %s", self.db, self.server)
-            base_conn_str = (
+            conn_str = (
                 f"DRIVER={self.driver};SERVER={self.server};DATABASE={self.db};"
                 "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
+                "Authentication=ActiveDirectoryMsi;"
             )
-            if self.use_entra:
-                conn_str = f"{base_conn_str}Authentication=ActiveDirectoryMsi;"
-                logging.info("Connecting using Entra ID (Managed Identity).")
-            else:
-                conn_str = f"{base_conn_str}UID={self.uid};PWD={self.pwd};"
-
+            logging.info("Connecting using Entra ID (Managed Identity).")
             return pyodbc.connect(conn_str)
         except pyodbc.Error as ex:
             logging.error("Database connection failed: %s", ex)

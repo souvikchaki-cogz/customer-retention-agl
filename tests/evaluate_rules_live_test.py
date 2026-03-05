@@ -13,11 +13,12 @@ from function_app import activity_evaluate_rules as evaluate_rules
 # --- Prerequisites Check ---
 def check_env_vars():
     """Checks if the required environment variables are set."""
-    required_vars = ["AZSQL_SERVER", "AZSQL_DB", "AZSQL_UID", "AZSQL_PWD", "USE_SQL_RULES"]
+    required_vars = ["AZSQL_SERVER", "AZSQL_DB", "USE_SQL_RULES"]
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     if missing_vars:
         print("Error: The following environment variables are not set:", ", ".join(missing_vars))
-        print("Please run the 'export' commands in your terminal before running this test.")
+        print("Please set the required environment variables before running this test.")
+        print("Note: This repo uses Microsoft Entra Managed Identity — no UID/password required.")
         sys.exit(1)
     
     if os.getenv("USE_SQL_RULES") != "1":
