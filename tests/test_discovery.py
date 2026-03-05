@@ -110,14 +110,14 @@ class TestGenerateTriggers:
         valid_payload = {
             "triggers": [
                 {
-                    "description": "Exploring Loan Refinancing Options",
-                    "example_phrases": "thinking of refinancing, what are your rates",
+                    "description": "Move-Out Intent",
+                    "example_phrases": "final meter read, moving house, close my account",
                     "support": 150,
                     "lift": 3.5,
                     "odds_ratio": 4.2,
                     "p_value": 0.0001,
                     "fdr": 0.0003,
-                    "narrative_explanation": "Customers shopping for rates show strong churn intent.",
+                    "narrative_explanation": "Customers requesting final meter reads are near-certain churners.",
                     "metrics_explanation": {
                         "support": "Appeared in 150 conversations.",
                         "lift": "3.5x more likely to churn.",
@@ -134,7 +134,7 @@ class TestGenerateTriggers:
         with patch("shared.discovery.get_openai_client", return_value=mock_client):
             result = generate_triggers()
         assert len(result) == 1
-        assert result[0]["description"] == "Exploring Loan Refinancing Options"
+        assert result[0]["description"] == "Move-Out Intent"
         assert isinstance(result[0]["support"], dict)
         assert "value" in result[0]["support"]
 
@@ -154,13 +154,13 @@ class TestGenerateTriggers:
         mock_client.chat.completions.create.side_effect = capture_call
 
         with patch("shared.discovery.get_openai_client", return_value=mock_client):
-            generate_triggers(exclude_phrases=["refinancing", "payout figure"])
+            generate_triggers(exclude_phrases=["final meter read", "bill shock"])
 
         assert len(captured_calls) == 1
         messages = captured_calls[0]["messages"]
         user_content = next(m["content"] for m in messages if m["role"] == "user")
-        assert "refinancing" in user_content
-        assert "payout figure" in user_content
+        assert "final meter read" in user_content
+        assert "bill shock" in user_content
 
     def test_prompt_constant_is_string(self):
         assert isinstance(PROMPT, str)

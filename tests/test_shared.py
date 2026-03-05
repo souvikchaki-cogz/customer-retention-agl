@@ -7,6 +7,7 @@ Run from project root:
 import sys
 import os
 import pytest
+from datetime import datetime, timezone, timedelta
 from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -31,7 +32,7 @@ class TestPiiScrubbing:
 
     def test_no_false_positive_on_plain_text(self):
         from shared.pii import scrub_text
-        text = "I want to close my home loan."
+        text = "I want to cancel my electricity account."
         result = scrub_text(text)
         assert result == text
 
@@ -53,7 +54,7 @@ class TestGuardrails:
 
     def test_detects_hardship_keyword(self):
         from shared.guardrails import detect_vulnerability
-        is_vuln, keywords = detect_vulnerability("I am struggling to pay my mortgage.")
+        is_vuln, keywords = detect_vulnerability("I am struggling to pay my energy bill.")
         assert is_vuln is True
         assert "struggling" in keywords
 
@@ -65,7 +66,7 @@ class TestGuardrails:
 
     def test_no_vulnerability_on_normal_note(self):
         from shared.guardrails import detect_vulnerability
-        is_vuln, keywords = detect_vulnerability("I would like a payout figure for my loan.")
+        is_vuln, keywords = detect_vulnerability("I would like to know my contract end date.")
         assert is_vuln is False
         assert keywords == []
 
@@ -75,9 +76,17 @@ class TestGuardrails:
         assert is_vuln is False
         assert keywords == []
 
+    def test_detects_life_support_keyword(self):
+        from shared.guardrails import detect_life_support
+        assert detect_life_support("My husband is on life support at home.") is True
+
+    def test_detect_life_support_returns_false_on_normal_note(self):
+        from shared.guardrails import detect_life_support
+        assert detect_life_support("What is my current plan?") is False
+
     def test_substring_evidence_guard_passes(self):
         from shared.guardrails import substring_evidence_guard
-        assert substring_evidence_guard("close my loan") is True
+        assert substring_evidence_guard("cancel my electricity") is True
 
     def test_substring_evidence_guard_fails_short(self):
         from shared.guardrails import substring_evidence_guard
@@ -134,19 +143,19 @@ class TestConfig:
 # ---------------------------------------------------------------------------
 SAMPLE_RULESET = {
     "text_rules": {
-        "T3_HOW_TO_CLOSE_LOAN": {
-            "id": "T3",
-            "description": "Asking how to close their loan and who to speak with.",
-            "weight": 0.45,
-            "phrase_hints": ["how do I close my loan", "process to close mortgage"],
+        "T2_MOVE_OUT_REQUEST": {
+            "id": "T2",
+            "description": "Customer explicitly stating they are moving out of the property.",
+            "weight": 0.55,
+            "phrase_hints": ["moving out", "moving house", "selling the house"],
             "negations": []
         },
-        "T2_REQUEST_PAYOUT_FIGURE": {
-            "id": "T2",
-            "description": "Requesting a loan payout (payoff) figure.",
-            "weight": 0.35,
-            "phrase_hints": ["payout figure", "payoff amount"],
-            "negations": []
+        "T7_COMPARING_RETAILERS": {
+            "id": "T7",
+            "description": "Customer actively comparing AGL against other energy retailers.",
+            "weight": 0.45,
+            "phrase_hints": ["shopping around", "comparing retailers", "found a cheaper plan"],
+            "negations": ["energy made easy account"]
         }
     }
 }
@@ -158,11 +167,11 @@ class TestTextMatcher:
         from shared.text_matcher import match_text_rules
         mock_client = MagicMock()
         mock_resp = MagicMock()
-        mock_resp.choices[0].message.content = '{"rule_hits": [{"rule_id": "T3", "confidence": 0.95, "evidence_text": "close my loan", "description": "Asking how to close their loan", "explanation": "Direct match"}]}'
+        mock_resp.choices[0].message.content = '{"rule_hits": [{"rule_id": "T2", "confidence": 0.95, "evidence_text": "moving house", "description": "Customer explicitly stating they are moving out of the property.", "explanation": "Direct match"}]}'
         mock_resp.usage = None
         mock_client.chat.completions.create.return_value = mock_resp
         with patch("shared.text_matcher.get_openai_client", return_value=mock_client):
-            result = match_text_rules("I want to close my loan.", SAMPLE_RULESET)
+            result = match_text_rules("I am moving house next month.", SAMPLE_RULESET)
         assert "rule_hits" in result
         assert isinstance(result["rule_hits"], list)
 
@@ -179,41 +188,41 @@ class TestTextMatcher:
         mock_client = MagicMock()
         mock_resp = MagicMock()
         # Only one rule returned from LLM
-        mock_resp.choices[0].message.content = '{"rule_hits": [{"rule_id": "T3", "confidence": 0.95, "evidence_text": "close my loan", "description": "desc", "explanation": "match"}]}'
+        mock_resp.choices[0].message.content = '{"rule_hits": [{"rule_id": "T2", "confidence": 0.95, "evidence_text": "moving house", "description": "desc", "explanation": "match"}]}'
         mock_resp.usage = None
         mock_client.chat.completions.create.return_value = mock_resp
         with patch("shared.text_matcher.get_openai_client", return_value=mock_client):
-            result = match_text_rules("close my loan", SAMPLE_RULESET)
+            result = match_text_rules("moving house", SAMPLE_RULESET)
         rule_ids = {h["rule_id"] for h in result["rule_hits"]}
-        # Both T3 and T2 should be in output (T2 as a zero-confidence entry)
-        assert "T3" in rule_ids
+        # Both T2 and T7 should be in output (T7 as a zero-confidence entry)
         assert "T2" in rule_ids
+        assert "T7" in rule_ids
 
     def test_hit_flag_true_when_confidence_and_evidence_meet_threshold(self):
         from shared.text_matcher import match_text_rules
         mock_client = MagicMock()
         mock_resp = MagicMock()
-        mock_resp.choices[0].message.content = '{"rule_hits": [{"rule_id": "T3", "confidence": 0.95, "evidence_text": "close my loan", "description": "desc", "explanation": "match"}]}'
+        mock_resp.choices[0].message.content = '{"rule_hits": [{"rule_id": "T7", "confidence": 0.95, "evidence_text": "shopping around", "description": "Customer actively comparing AGL against other energy retailers.", "explanation": "match"}]}'
         mock_resp.usage = None
         mock_client.chat.completions.create.return_value = mock_resp
         with patch("shared.text_matcher.get_openai_client", return_value=mock_client):
-            result = match_text_rules("close my loan", SAMPLE_RULESET)
-        t3 = next(h for h in result["rule_hits"] if h["rule_id"] == "T3")
-        assert t3["hit"] is True
+            result = match_text_rules("shopping around", SAMPLE_RULESET)
+        t7 = next(h for h in result["rule_hits"] if h["rule_id"] == "T7")
+        assert t7["hit"] is True
 
     def test_hit_flag_false_when_evidence_too_short(self):
         from shared.text_matcher import match_text_rules
         mock_client = MagicMock()
         mock_resp = MagicMock()
         # Evidence is only 2 chars — should fail the evidence guard
-        mock_resp.choices[0].message.content = '{"rule_hits": [{"rule_id": "T3", "confidence": 0.95, "evidence_text": "hi", "description": "desc", "explanation": "match"}]}'
+        mock_resp.choices[0].message.content = '{"rule_hits": [{"rule_id": "T7", "confidence": 0.95, "evidence_text": "hi", "description": "desc", "explanation": "match"}]}'
         mock_resp.usage = None
         mock_client.chat.completions.create.return_value = mock_resp
         with patch("shared.text_matcher.get_openai_client", return_value=mock_client):
             result = match_text_rules("hi", SAMPLE_RULESET)
-        t3 = next((h for h in result["rule_hits"] if h["rule_id"] == "T3"), None)
-        if t3:
-            assert t3["hit"] is False
+        t7 = next((h for h in result["rule_hits"] if h["rule_id"] == "T7"), None)
+        if t7:
+            assert t7["hit"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -222,77 +231,96 @@ class TestTextMatcher:
 class TestScoreEvent:
 
     RULESET = {
-        "confidence_floor": 0.6,
+        "confidence_floor": 0.55,
         "weights": {
-            "tenure_risk": 0.15,
-            "broker_risk": 0.10,
-            "rate_delta_risk": 0.20,
-            "io_expiry_risk": 0.25,
+            "property_sale_risk": 0.35,
+            "contract_expiry_risk": 0.20,
+            "bill_shock_risk": 0.20,
+            "no_concession_risk": 0.15,
         },
         "text_rules": {
-            "T3": {"weight": 0.45}
+            "T7": {"weight": 0.45}
         }
     }
 
-    def _make_text_result(self, rule_id="T3", confidence=0.9, evidence="close my loan"):
+    def _make_text_result(self, rule_id="T7", confidence=0.9, evidence="shopping around"):
         return {
             "rule_hits": [
                 {"rule_id": rule_id, "confidence": confidence,
                  "hit": True, "evidence_text": evidence,
-                 "description": "Asking how to close their loan", "explanation": "match"}
+                 "description": "Customer actively comparing AGL against other energy retailers.",
+                 "explanation": "match"}
             ]
         }
 
     def test_score_is_between_0_and_1(self):
         from shared.rules import score_event
-        features = {"remaining_years": 3.0, "is_broker_originated": False,
-                    "interest_rate": 4.5, "advertised_rate": 4.0,
-                    "is_interest_only": False}
+        features = {
+            "property_listing_status": "FOR_SALE",
+            "contract_end_date": None,
+            "last_bill_amount": None,
+            "prev_bill_amount": None,
+            "conditional_discount_removed": False,
+        }
         with patch("shared.rules.get_meaningful_explanation", return_value="summary"):
             score, details = score_event(self.RULESET, self._make_text_result(), features)
         assert 0.0 <= score <= 1.0
 
-    def test_tenure_risk_adds_to_score(self):
+    def test_property_listing_adds_to_score(self):
         from shared.rules import score_event
-        features = {"remaining_years": 3.0, "is_broker_originated": False,
-                    "interest_rate": 4.0, "advertised_rate": 4.0,
-                    "is_interest_only": False}
+        features_for_sale = {
+            "property_listing_status": "FOR_SALE",
+            "contract_end_date": None,
+            "last_bill_amount": None,
+            "prev_bill_amount": None,
+            "conditional_discount_removed": False,
+        }
+        features_no_listing = {**features_for_sale, "property_listing_status": None}
         with patch("shared.rules.get_meaningful_explanation", return_value="summary"):
-            score_with, _ = score_event(self.RULESET, {"rule_hits": []}, features)
-
-        features_no_tenure = {**features, "remaining_years": 15.0}
-        with patch("shared.rules.get_meaningful_explanation", return_value="summary"):
-            score_without, _ = score_event(self.RULESET, {"rule_hits": []}, features_no_tenure)
-
+            score_with, _ = score_event(self.RULESET, {"rule_hits": []}, features_for_sale)
+            score_without, _ = score_event(self.RULESET, {"rule_hits": []}, features_no_listing)
         assert score_with > score_without
 
-    def test_broker_risk_adds_to_score(self):
+    def test_contract_expiry_adds_to_score(self):
         from shared.rules import score_event
-        features_broker = {"remaining_years": 15.0, "is_broker_originated": True,
-                           "interest_rate": 4.0, "advertised_rate": 4.0,
-                           "is_interest_only": False}
-        features_no_broker = {**features_broker, "is_broker_originated": False}
+        contract_date = (datetime.now(timezone.utc) + timedelta(days=30)).date().isoformat()
+        features_expiring = {
+            "property_listing_status": None,
+            "contract_end_date": contract_date,
+            "last_bill_amount": None,
+            "prev_bill_amount": None,
+            "conditional_discount_removed": False,
+        }
+        features_no_expiry = {**features_expiring, "contract_end_date": None}
         with patch("shared.rules.get_meaningful_explanation", return_value="summary"):
-            score_broker, _ = score_event(self.RULESET, {"rule_hits": []}, features_broker)
-            score_no_broker, _ = score_event(self.RULESET, {"rule_hits": []}, features_no_broker)
-        assert score_broker > score_no_broker
+            score_with, _ = score_event(self.RULESET, {"rule_hits": []}, features_expiring)
+            score_without, _ = score_event(self.RULESET, {"rule_hits": []}, features_no_expiry)
+        assert score_with > score_without
 
-    def test_rate_delta_risk_adds_to_score(self):
+    def test_bill_shock_adds_to_score(self):
         from shared.rules import score_event
-        features_high_rate = {"remaining_years": 15.0, "is_broker_originated": False,
-                              "interest_rate": 6.5, "advertised_rate": 4.0,
-                              "is_interest_only": False}
-        features_normal_rate = {**features_high_rate, "interest_rate": 4.1}
+        features_high_bill = {
+            "property_listing_status": None,
+            "contract_end_date": None,
+            "last_bill_amount": 500,
+            "prev_bill_amount": 300,
+            "conditional_discount_removed": False,
+        }
+        features_normal_bill = {**features_high_bill, "last_bill_amount": 310}
         with patch("shared.rules.get_meaningful_explanation", return_value="summary"):
-            score_high, _ = score_event(self.RULESET, {"rule_hits": []}, features_high_rate)
-            score_normal, _ = score_event(self.RULESET, {"rule_hits": []}, features_normal_rate)
+            score_high, _ = score_event(self.RULESET, {"rule_hits": []}, features_high_bill)
+            score_normal, _ = score_event(self.RULESET, {"rule_hits": []}, features_normal_bill)
         assert score_high > score_normal
 
     def test_details_contains_required_keys(self):
         from shared.rules import score_event
-        features = {"remaining_years": 3.0, "is_broker_originated": True,
-                    "interest_rate": 5.0, "advertised_rate": 4.0,
-                    "is_interest_only": False}
+        features = {
+            "property_listing_status": "FOR_SALE",
+            "contract_end_date": None,
+            "last_bill_amount": 500,
+            "prev_bill_amount": 300,
+            "conditional_discount_removed": False,
+        }
         with patch("shared.rules.get_meaningful_explanation", return_value="test summary"):
             _, details = score_event(self.RULESET, self._make_text_result(), features)
         assert "rule_hits_json" in details
@@ -302,9 +330,13 @@ class TestScoreEvent:
     def test_agent_version_comes_from_config(self):
         from shared.rules import score_event
         from shared.config import AGENT_VERSION
-        features = {"remaining_years": 15.0, "is_broker_originated": False,
-                    "interest_rate": 4.0, "advertised_rate": 4.0,
-                    "is_interest_only": False}
+        features = {
+            "property_listing_status": None,
+            "contract_end_date": None,
+            "last_bill_amount": None,
+            "prev_bill_amount": None,
+            "conditional_discount_removed": False,
+        }
         with patch("shared.rules.get_meaningful_explanation", return_value="summary"):
             _, details = score_event(self.RULESET, {"rule_hits": []}, features)
         assert details["agent_version"] == AGENT_VERSION
