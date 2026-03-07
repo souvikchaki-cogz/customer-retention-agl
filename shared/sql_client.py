@@ -1,5 +1,5 @@
-"""SQL Client for Azure SQL Database interactions."""
 import logging
+import os
 from typing import Any, List, Dict, Iterable
 
 import pyodbc
@@ -8,27 +8,46 @@ from shared.config import (
     AZSQL_SERVER,
     AZSQL_DB,
     AZSQL_DRIVER,
+    AZSQL_UID,
+    AZSQL_PWD,
 )
 
 class SqlClient:
     def __init__(self):
-        self.server = AZSQL_SERVER  # unified config value
+        self.server = AZSQL_SERVER
         self.db = AZSQL_DB
         self.driver = AZSQL_DRIVER if AZSQL_DRIVER else "{ODBC Driver 18 for SQL Server}"
+        self.uid = AZSQL_UID
+        self.pwd = AZSQL_PWD
 
     def _conn(self):
+        # First, try Managed Identity/EntraID
         try:
-            logging.info("Attempting to connect to database: %s on server %s", self.db, self.server)
-            conn_str = (
+            logging.info("Attempting MSI/EntraID authentication to database: %s on server %s", self.db, self.server)
+            conn_str_msi = (
                 f"DRIVER={self.driver};SERVER={self.server};DATABASE={self.db};"
                 "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
                 "Authentication=ActiveDirectoryMsi;"
             )
-            logging.info("Connecting using Entra ID (Managed Identity).")
-            return pyodbc.connect(conn_str)
-        except pyodbc.Error as ex:
-            logging.error("Database connection failed: %s", ex)
-            raise
+            return pyodbc.connect(conn_str_msi)
+        except pyodbc.Error as ex_msi:
+            logging.error("Managed Identity authentication failed: %s", ex_msi)
+            # Try fallback: SQL username/password authentication
+            try:
+                logging.info("Attempting SQL username/password authentication as fallback.")
+                conn_str_sql = (
+                    f"DRIVER={self.driver};SERVER={self.server};DATABASE={self.db};"
+                    f"UID={self.uid};PWD={self.pwd};"
+                    "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
+                )
+                return pyodbc.connect(conn_str_sql)
+            except pyodbc.Error as ex_sql:
+                logging.error("SQL username/password authentication failed: %s", ex_sql)
+                # Optionally, raise the original Managed Identity error, or both
+                raise Exception(
+                    f"Both Managed Identity and SQL authentication failed:\n"
+                    f"MSI error: {ex_msi}\nSQL auth error: {ex_sql}"
+                )
 
     def execute(self, sql: str, params: List[Any] = None) -> int:
         logging.info("Executing execute: %s...", sql[:100])

@@ -1,11 +1,29 @@
-import os
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import yaml
 from datetime import datetime
 from shared.sql_client import SqlClient
+from shared.config import LOG_LEVEL, DEFAULT_RULESET_YAML_PATH
 
+logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+def load_yaml_file(path: str) -> Optional[dict]:
+    """Safely load YAML file with logging."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = yaml.safe_load(f)
+            logger.debug("Loaded YAML file: %s", path)
+            return content
+    except FileNotFoundError:
+        logger.error("YAML file not found: %s", path)
+        return None
+    except yaml.YAMLError as e:
+        logger.error("YAML loading error in file %s: %s", path, e)
+        return None
+    except Exception as e:
+        logger.error("Unexpected error loading YAML file %s: %s", path, e)
+        return None
 
 def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
     """
@@ -31,18 +49,18 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
         })
         rule_id_counter += 1
 
+    sql_client = SqlClient()
     try:
         logger.debug("Attempting to fetch dynamic rules from agl_rules_library.")
-        sql_client = SqlClient()
         result = sql_client.fetch_one(
             "SELECT TOP 1 version, ruleset_yaml FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
         )
-        if result and result.get("ruleset_yaml"):
-            logger.debug("Found an ACTIVE ruleset in the database.")
-            ruleset_yaml_str = result["ruleset_yaml"]
+        ruleset_yaml_str: Optional[str] = result["ruleset_yaml"] if result and result.get("ruleset_yaml") else None
+
+        if ruleset_yaml_str:
             ruleset = yaml.safe_load(ruleset_yaml_str)
-            if ruleset and 'text_rules' in ruleset:
-                logger.debug("Successfully parsed YAML and found 'text_rules'.")
+            if ruleset and isinstance(ruleset.get('text_rules'), dict):
+                logger.debug("Parsed YAML and found 'text_rules'.")
                 for _, rule_value in ruleset['text_rules'].items():
                     if 'description' in rule_value:
                         rows.append({
@@ -52,13 +70,28 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
                         })
                         rule_id_counter += 1
             else:
-                logger.warning("Ruleset YAML was loaded but is missing 'text_rules' key or is empty.")
+                logger.warning("Ruleset YAML is missing 'text_rules' or is not a dict.")
         else:
-            logger.info("No ACTIVE ruleset found in dbo.agl_rules_library.")
+            logger.info("No ACTIVE ruleset found in dbo.agl_rules_library. Attempting fallback.")
+            ruleset = load_yaml_file(DEFAULT_RULESET_YAML_PATH)
+            if ruleset and isinstance(ruleset.get('text_rules'), dict):
+                logger.info("Fallback loaded sample_rules.yaml text_rules.")
+                for _, rule_value in ruleset['text_rules'].items():
+                    if 'description' in rule_value:
+                        rows.append({
+                            "id": rule_id_counter,
+                            "phrase": rule_value['description'],
+                            "severity": "NOTE",
+                        })
+                        rule_id_counter += 1
+            else:
+                logger.error("Fallback ruleset YAML missing 'text_rules' or is empty.")
+
     except Exception as exc:
-        logger.error("Failed to fetch rules from agl_rules_library: %s", exc)
+        logger.error("Failed to fetch or parse rules from agl_rules_library: %s", exc)
 
     return rows
+
 
 def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odds_ratio: float) -> bool:
     """
@@ -74,6 +107,7 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
             patch_i = int(patch) if patch.isdigit() else 0
             return f"{major}.{minor}.{patch_i + 1}"
         except Exception:
+            logger.error("Error bumping semver patch: %s", v)
             return "0.1.1"
 
     def _safe_slug(s: str, max_len: int = 40) -> str:
@@ -113,12 +147,15 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
 
     try:
         weight = round(float(odds_ratio) / 10.0, 3)
-    except Exception:
-        logger.error("Invalid odds_ratio provided: %r", odds_ratio)
+        phrase_hints = [h.strip() for h in (example_phrases or "").split(",") if h.strip()]
+    except Exception as e:
+        logger.error("Invalid odds_ratio or example_phrases provided: %r, error=%s", odds_ratio, e)
         return False
-    phrase_hints = [h.strip() for h in (example_phrases or "").split(",") if h.strip()]
 
     sql_client = SqlClient()
+    ruleset_yaml_str: Optional[str] = None
+    current_version: str = "0.1.0"
+    # Try DB; fallback to standardized YAML if needed
     try:
         row = sql_client.fetch_one(
             "SELECT TOP 1 version, ruleset_yaml FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
@@ -126,30 +163,26 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
         if not row or not row.get("ruleset_yaml"):
             logger.info("No ACTIVE ruleset; falling back to most recent by activated_ts")
             row = sql_client.fetch_one(
-                "SELECT TOP 1 version, ruleset_yaml FROM dbo.agl_rules_library ORDER BY activated_ts DESC"
+                "SELECT TOP 1 version, ruleset_yaml FROM dbo/agl_rules_library ORDER BY activated_ts DESC"
             )
 
-        ruleset_yaml_str: str | None = None
-        current_version: str = "0.1.0"
         if row and row.get("ruleset_yaml"):
             current_version = row.get("version", "0.1.0")
             ruleset_yaml_str = row.get("ruleset_yaml")
         else:
-            logger.warning("No existing ruleset rows found; attempting to bootstrap from sample_rules.yaml")
-            try:
-                root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-                sample_path = os.path.join(root_dir, "sample_rules.yaml")
-                with open(sample_path, "r", encoding="utf-8") as f:
-                    ruleset_yaml_str = f.read()
-                current_version = "0.1.0"
-            except Exception as e:
-                logger.error("Unable to bootstrap ruleset from sample_rules.yaml: %s", e)
-                return False
+            logger.warning("No existing ruleset rows found; using standardized YAML fallback")
+            ruleset = load_yaml_file(DEFAULT_RULESET_YAML_PATH)
+            ruleset_yaml_str = yaml.dump(ruleset) if ruleset else None
+            current_version = "0.1.0"
 
-        try:
-            ruleset = yaml.safe_load(ruleset_yaml_str or "") or {}
-        except Exception as e:
-            logger.error("Failed to parse existing ruleset_yaml: %s", e)
+        if ruleset_yaml_str:
+            try:
+                ruleset = yaml.safe_load(ruleset_yaml_str)
+            except yaml.YAMLError as e:
+                logger.error("Failed to parse existing ruleset_yaml: %s", e)
+                return False
+        else:
+            logger.error("Failed to find any ruleset YAML for update.")
             return False
 
         text_rules = ruleset.get("text_rules")
@@ -177,7 +210,7 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
 
         try:
             new_ruleset_yaml = yaml.dump(ruleset, sort_keys=False, indent=2)
-        except Exception as e:
+        except yaml.YAMLError as e:
             logger.error("Failed to serialize updated ruleset_yaml: %s", e)
             return False
 
@@ -188,10 +221,8 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
                 "VALUES (?, 'ACTIVE', ?, ?)"
             )
             activated_ts = datetime.utcnow()
-
             sql_client.execute(deactivate_sql)
             sql_client.execute(insert_sql, [new_version, activated_ts, new_ruleset_yaml])
-
         except Exception as e:
             logger.error("Failed to write updated ruleset to database: %s", e)
             return False

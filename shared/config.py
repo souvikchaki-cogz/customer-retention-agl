@@ -47,3 +47,10 @@ LOG_LEVEL           = os.getenv("LOG_LEVEL",           "INFO")
 REPLAY_QUEUE_NAME   = os.getenv("REPLAY_QUEUE_NAME",   "event-replay")
 USE_SQL_RULES       = os.getenv("USE_SQL_RULES",       "1")
 AGENT_VERSION       = os.getenv("AGENT_VERSION",       "1.0.0")
+
+# ── Standardized paths ─────────────────────────────────────────────────────────────
+# Path to the default local ruleset YAML for fallback loading; can be overridden via env
+DEFAULT_RULESET_YAML_PATH = os.getenv(
+    "DEFAULT_RULESET_YAML_PATH",
+    os.path.join(os.path.dirname(__file__), "..", "sample_rules.yaml")
+)
