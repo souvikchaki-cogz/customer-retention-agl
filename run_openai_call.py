@@ -10,7 +10,7 @@ from shared.discovery import generate_triggers
 # the following environment variables are set in your shell:
 # - AZURE_OPENAI_ENDPOINT
 # - AZURE_OPENAI_API_KEY
-# - AZURE_OPENAI_DEPLOYMENT
+# - AZURE_OPENAI_DEPLOYMENTNAME
 #
 # To run the script, execute this command from the project root directory:
 #   python run_openai_call.py
@@ -19,7 +19,7 @@ from shared.discovery import generate_triggers
 _REQUIRED_ENV_VARS = [
     "AZURE_OPENAI_ENDPOINT",
     "AZURE_OPENAI_API_KEY",
-    "AZURE_OPENAI_DEPLOYMENT",
+    "AZURE_OPENAI_DEPLOYMENTNAME",
 ]
 
 

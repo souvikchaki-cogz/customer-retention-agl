@@ -8,7 +8,7 @@ from .azure_openai import get_openai_client
 from shared.config import (
     CONFIDENCE_FLOOR,
     EVIDENCE_MIN_LEN,
-    AZURE_OPENAI_DEPLOYMENT
+    AZURE_OPENAI_DEPLOYMENTNAME
 )
 
 def _build_catalog(ruleset: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -29,7 +29,7 @@ def match_text_rules(text: str, ruleset: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         client = get_openai_client()
-        deployment = AZURE_OPENAI_DEPLOYMENT
+        deployment = AZURE_OPENAI_DEPLOYMENTNAME
     except (ValueError, Exception) as e:
         logging.error("AzureOpenAI client could not be initialized (%s). Cannot match text rules.", e)
         return {"rule_hits": [], "error": "OpenAI client could not be initialized."}

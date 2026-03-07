@@ -88,7 +88,7 @@ def generate_triggers(prompt: str = PROMPT, exclude_phrases: Optional[List[str]]
         final_prompt += "\n\nDo not generate themes or phrases that are already in the following list:\n" + json.dumps(exclude_phrases)
     try:
         client = get_openai_client()
-        deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+        deployment = os.getenv("AZURE_OPENAI_DEPLOYMENTNAME")
     except (ValueError, Exception) as e:
         logger.info("Azure OpenAI client could not be initialized (%s); returning fallback structured triggers", e)
         return _fallback_structured()

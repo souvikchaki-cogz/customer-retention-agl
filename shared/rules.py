@@ -5,7 +5,7 @@ from .sql_client import SqlClient
 from .azure_openai import get_openai_client
 from shared.config import (
     USE_SQL_RULES,
-    AZURE_OPENAI_DEPLOYMENT,
+    AZURE_OPENAI_DEPLOYMENTNAME,
     AGENT_VERSION,
     CONFIDENCE_FLOOR,
 )
@@ -54,7 +54,7 @@ def get_meaningful_explanation(explanations: list) -> str:
     """
     try:
         client = get_openai_client()
-        deployment = AZURE_OPENAI_DEPLOYMENT
+        deployment = AZURE_OPENAI_DEPLOYMENTNAME
     except (ValueError, Exception) as e:
         logging.error("AzureOpenAI client could not be initialized (%s). Cannot generate meaningful explanation.", e)
         return " | ".join(explanations)[:1000]

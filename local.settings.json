@@ -15,7 +15,7 @@
     "AZSQL_DRIVER": "{ODBC Driver 18 for SQL Server}",
     "USE_SQL_RULES": "1",
     "AZURE_OPENAI_ENDPOINT": "https://<your-aoai>.openai.azure.com/",
-    "AZURE_OPENAI_DEPLOYMENT": "<gpt-4o-mini-or-equivalent>",
+    "AZURE_OPENAI_DEPLOYMENTNAME": "<gpt-4o-mini-or-equivalent>",
     "AZURE_OPENAI_API_KEY": "<key-or-use-AAD>",
     "AZURE_OPENAI_API_VERSION": "2025-01-01-preview",
     "FUNCTION_BASE_URL": "http://localhost:7071",
