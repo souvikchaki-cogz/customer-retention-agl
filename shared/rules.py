@@ -4,13 +4,14 @@ import yaml
 from .sql_client import SqlClient
 from .azure_openai import get_openai_client
 from shared.config import (
+    LOG_LEVEL,
     USE_SQL_RULES,
     AZURE_OPENAI_DEPLOYMENTNAME,
     AGENT_VERSION,
     CONFIDENCE_FLOOR,
 )
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=LOG_LEVEL)
 
 def load_active_ruleset():
     """

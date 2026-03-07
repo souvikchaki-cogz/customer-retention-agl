@@ -1,5 +1,8 @@
 import logging
-from shared.config import EVIDENCE_MIN_LEN, CONFIDENCE_FLOOR  # unified config import
+from shared.config import EVIDENCE_MIN_LEN, CONFIDENCE_FLOOR, LOG_LEVEL
+
+logging.basicConfig(level=LOG_LEVEL)
+logger = logging.getLogger(__name__)
 
 # A list of keywords and phrases that may indicate customer vulnerability.
 VULNERABILITY_LEXICON = [
@@ -31,7 +34,9 @@ def detect_vulnerability(text: str) -> (bool, list[str]):
     
     is_vulnerable = len(found_keywords) > 0
     if is_vulnerable:
-        logging.warning(f"Vulnerability Guardrail: Detected potential vulnerability. Keywords found: {found_keywords}")
+        logger.warning(
+            f"Vulnerability Guardrail: Detected potential vulnerability. Keywords found: {found_keywords}"
+        )
 
     return is_vulnerable, found_keywords
 

@@ -8,6 +8,10 @@ from shared.sql_client import SqlClient
 logger = logging.getLogger(__name__)
 
 def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
+    """
+    Fetch rules from the agl_rules_library table and combine them with
+    hardcoded customer profile rules.
+    """
     rows: List[Dict[str, Any]] = []
     rule_id_counter = 1
 
@@ -33,7 +37,7 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
         result = sql_client.fetch_one(
             "SELECT TOP 1 version, ruleset_yaml FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
         )
-        if result:
+        if result and result.get("ruleset_yaml"):
             logger.debug("Found an ACTIVE ruleset in the database.")
             ruleset_yaml_str = result["ruleset_yaml"]
             ruleset = yaml.safe_load(ruleset_yaml_str)
@@ -57,6 +61,10 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
     return rows
 
 def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odds_ratio: float) -> bool:
+    """
+    Insert a new ACTIVE ruleset row in dbo.agl_rules_library with an updated ruleset_yaml
+    including a newly approved text rule.
+    """
     def _bump_semver_patch(v: str) -> str:
         try:
             parts = str(v).strip().split(".")
@@ -115,7 +123,7 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
         row = sql_client.fetch_one(
             "SELECT TOP 1 version, ruleset_yaml FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
         )
-        if not row:
+        if not row or not row.get("ruleset_yaml"):
             logger.info("No ACTIVE ruleset; falling back to most recent by activated_ts")
             row = sql_client.fetch_one(
                 "SELECT TOP 1 version, ruleset_yaml FROM dbo.agl_rules_library ORDER BY activated_ts DESC"
@@ -123,8 +131,9 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
 
         ruleset_yaml_str: str | None = None
         current_version: str = "0.1.0"
-        if row:
-            current_version, ruleset_yaml_str = row.get("version", "0.1.0"), row.get("ruleset_yaml")
+        if row and row.get("ruleset_yaml"):
+            current_version = row.get("version", "0.1.0")
+            ruleset_yaml_str = row.get("ruleset_yaml")
         else:
             logger.warning("No existing ruleset rows found; attempting to bootstrap from sample_rules.yaml")
             try:
