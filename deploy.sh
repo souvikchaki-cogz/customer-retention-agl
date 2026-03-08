@@ -6,23 +6,20 @@
 
 set -euo pipefail
 
-# Load environment variables from .env
+# Robust .env loader: supports values containing '=' and strips surrounding quotes
 if [ -f ".env" ]; then
-  while read -r line; do
-    case "$line" in
-      ''|[#]*) continue ;;
-      *)
-        export "$line"
-        ;;
-    esac
+  while IFS='=' read -r key value; do
+    case "$key" in ''|[#]*) continue ;; esac
+    raw_value=$(grep -m1 "^${key}=" .env | cut -d'=' -f2-)
+    # Strip surrounding quotes
+    raw_value="${raw_value%\"}"
+    raw_value="${raw_value#\"}"
+    export "${key}=${raw_value}"
   done < .env
 else
   echo "❌ .env file not found. Please create one."
   exit 1
 fi
-
-# Now, variables used below will be loaded from .env
-# Remove all hard-coded assignments from deploy.sh, keeping only derived variables and commands
 
 # -- Keep TIMESTAMP and IMAGE_TAG logic --
 TIMESTAMP=$(date +%Y%m%d%H%M%S)
@@ -31,18 +28,18 @@ IMAGE_TAG="${ACR_NAME}.azurecr.io/${CONTAINER_APP_NAME}:${TIMESTAMP}"
 # -- Keep UAMI_ID as derived --
 UAMI_ID="/subscriptions/${UAMI_SUBSCRIPTION_ID}/resourceGroups/${UAMI_RESOURCE_GROUP}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${UAMI_NAME}"
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Helpers
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
-log()  { echo ""; echo "──────────────────────────────────────────────"; echo "  ▶  $1"; echo "────────────────────────────────���─────────────"; }
+log()  { echo ""; echo "──────────────────────────────────────────────"; echo "  ▶  $1"; echo "──────────────────────────────────────────────"; }
 ok()   { echo "  ✅ $1"; }
 info() { echo "  ℹ️  $1"; }
 warn() { echo "  ⚠️  $1"; }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Destroy Created Resources
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 destroy_created_resources() {
     log "Destroying previously created resources if they exist (safe cleanup)..."
@@ -57,9 +54,9 @@ destroy_created_resources() {
     ok "Specific resources cleaned up."
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Prerequisites
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 check_prerequisites() {
     log "Prerequisites"
@@ -95,9 +92,9 @@ check_prerequisites() {
     ok "function_app.py found."
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Log Analytics Workspace
-# ────────────────────────────────────────────────────��────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 deploy_log_analytics() {
     log "Log Analytics Workspace"
@@ -107,12 +104,12 @@ deploy_log_analytics() {
         --location "$LOCATION" \
         --output none
 
-    LAW_ID=$(az monitor log-analytics workspace show \
+    export LAW_ID=$(az monitor log-analytics workspace show \
         --resource-group "$RESOURCE_GROUP" \
         --workspace-name "$LOG_ANALYTICS_WORKSPACE" \
         --query customerId -o tsv)
 
-    LAW_KEY=$(az monitor log-analytics workspace get-shared-keys \
+    export LAW_KEY=$(az monitor log-analytics workspace get-shared-keys \
         --resource-group "$RESOURCE_GROUP" \
         --workspace-name "$LOG_ANALYTICS_WORKSPACE" \
         --query primarySharedKey -o tsv)
@@ -120,9 +117,9 @@ deploy_log_analytics() {
     ok "Log Analytics '$LOG_ANALYTICS_WORKSPACE' ready."
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Application Insights
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 deploy_app_insights() {
     log "Application Insights"
@@ -133,7 +130,7 @@ deploy_app_insights() {
         --workspace "$LOG_ANALYTICS_WORKSPACE" \
         --output none
 
-    APPINSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show \
+    export APPINSIGHTS_CONNECTION_STRING=$(az monitor app-insights component show \
         --app "$APP_INSIGHTS_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --query connectionString -o tsv)
@@ -141,9 +138,9 @@ deploy_app_insights() {
     ok "App Insights '$APP_INSIGHTS_NAME' ready."
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Storage Account
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 deploy_storage() {
     log "Storage Account"
@@ -154,7 +151,7 @@ deploy_storage() {
         --sku Standard_LRS \
         --output none
 
-    STORAGE_CONNECTION_STRING=$(az storage account show-connection-string \
+    export STORAGE_CONNECTION_STRING=$(az storage account show-connection-string \
         --name "$STORAGE_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --query connectionString -o tsv)
@@ -162,9 +159,9 @@ deploy_storage() {
     ok "Storage Account '$STORAGE_NAME' ready."
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Azure Container Registry
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 deploy_acr() {
     log "Azure Container Registry"
@@ -179,9 +176,9 @@ deploy_acr() {
     ok "ACR '$ACR_NAME' ready."
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Build Container Image — az acr build (no local Docker)
-# ───────────────────────────────────────────────────────��─────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 build_image_acr() {
     log "Build image via az acr build (no local Docker)"
@@ -192,40 +189,48 @@ build_image_acr() {
         --resource-group "$RESOURCE_GROUP" \
         --image "${CONTAINER_APP_NAME}:${TIMESTAMP}" \
         --file Dockerfile \
-        --no-logs \
         . \
         --output none
 
     ok "Image built and pushed: $IMAGE_TAG"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Azure Function App — Assign Managed Identity (UAMI) + SQL Settings
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 deploy_function_app() {
+
+    log "Function App Plan — Create Elastic Premium (EP1)"
+    az functionapp plan create \
+        --name "${FUNC_APP_NAME}-plan" \
+        --resource-group "$RESOURCE_GROUP" \
+        --location "$LOCATION" \
+        --sku EP1 \
+        --is-linux \
+        --output none
+
+    ok "Function App Plan '${FUNC_APP_NAME}-plan' created."
 
     log "Function App — Create (with Managed Identity)"
 
     az functionapp create \
         --name "$FUNC_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
+        --plan "${FUNC_APP_NAME}-plan" \
         --storage-account "$STORAGE_NAME" \
-        --consumption-plan-location "$LOCATION" \
         --runtime python \
         --runtime-version 3.12 \
         --functions-version 4 \
-        --app-insights "$APP_INSIGHTS_NAME" \
         --os-type linux \
         --assign-identity "$UAMI_ID" \
+        --app-insights "$APP_INSIGHTS_NAME" \
         --output none
 
     ok "Function App '$FUNC_APP_NAME' (UAMI assigned) created."
     echo "UAMI_CLIENT_ID is: '$UAMI_CLIENT_ID'"
 
     log "Function App — Configure settings"
-
-
 
     az functionapp config appsettings set \
         --name "$FUNC_APP_NAME" \
@@ -244,7 +249,8 @@ deploy_function_app() {
             "APPLICATIONINSIGHTS_CONNECTION_STRING=${APPINSIGHTS_CONNECTION_STRING}" \
             "FUNCTIONS_EXTENSION_VERSION=~4" \
             "FUNCTIONS_WORKER_RUNTIME=python" \
-            "MANAGED_IDENTITY_CLIENT_ID=${UAMI_CLIENT_ID}"
+            "MANAGED_IDENTITY_CLIENT_ID=${UAMI_CLIENT_ID}" \
+            "PYTHON_ENABLE_WORKER_EXTENSIONS=1"
 
     ok "Function App settings configured."
 
@@ -253,7 +259,7 @@ deploy_function_app() {
     func azure functionapp publish "$FUNC_APP_NAME" \
         --python \
         --build remote \
-        2>&1 | grep -E "(Deployment|successfully|Error|Failed|WARNING|warning|Uploading|Remote build)" || true
+        2>&1 | grep -E "(Deployment|successfully|Error|Failed|WARNING|warning|Uploading|Remote build|No functions found|Could not find|Exception)"
 
     ok "Function App published."
 
@@ -267,12 +273,10 @@ deploy_function_app() {
 
     info "Function code to use: $FUNCTION_CODE"
 
-    FUNCTION_BASE_URL="https://${FUNC_APP_NAME}.azurewebsites.net"
-
+    export FUNCTION_BASE_URL="https://${FUNC_APP_NAME}.azurewebsites.net"
     info "Function base URL: $FUNCTION_BASE_URL"
 
-    FUNCTION_START_URL="${FUNCTION_BASE_URL}/api/http_start_single_analysis?code=${FUNCTION_CODE}"
-
+    export FUNCTION_START_URL="${FUNCTION_BASE_URL}/api/http_start_single_analysis?code=${FUNCTION_CODE}"
     info "Function start URL: $FUNCTION_START_URL"
 
     # Smoke test — POST should return 202
@@ -289,9 +293,9 @@ deploy_function_app() {
     fi
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Container App Environment + Container App — Assign Managed Identity
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 deploy_container_app() {
     log "Container App — Environment"
@@ -367,9 +371,9 @@ deploy_container_app() {
     ok "Container App '$CONTAINER_APP_NAME' (UAMI assigned, env/secrets) deployed."
 }
 
-# ────────��────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Verify
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 verify_deployment() {
     log "Verify deployment"
@@ -414,9 +418,9 @@ verify_deployment() {
     echo "════════════════════════════════════════════════════════"
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 # Main
-# ─────────────────────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────────
 
 main() {
     destroy_created_resources
