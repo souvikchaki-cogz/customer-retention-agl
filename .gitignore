@@ -12,7 +12,6 @@ __pycache__/
 
 # ---- Virtual Environments ----
 .env
-.env.example
 .venv/
 venv/
 ENV/
@@ -42,6 +41,7 @@ yarn-error.log*
 *.env
 !.env.example
 *.sh
+!deploy.sh
 
 # ---- IDE / Editor / OS ----
 .vscode/
@@ -57,8 +57,3 @@ data/
 .tmp/
 local.settings.json
 .env.example
-local.settings.json
-.env.example
-local.settings.json
-.env.example
-local.settings.json
