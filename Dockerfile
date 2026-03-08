@@ -23,8 +23,8 @@ RUN curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor
 ENV PATH="/opt/mssql-tools18/bin:${PATH}"
 
 # Copy requirements
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt --root-user-action=ignore
+COPY requirements-webapp.txt .
+RUN pip install --no-cache-dir -r requirements-webapp.txt --root-user-action=ignore
 
 # Copy all app code (webapp, shared, static, plus anything you need)
 COPY shared ./shared

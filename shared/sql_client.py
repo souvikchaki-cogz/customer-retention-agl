@@ -3,7 +3,7 @@ import os
 from typing import Any, List, Dict, Iterable
 
 import pyodbc
-import pandas as pd
+# pandas imported lazily inside methods that need it
 from shared.config import (
     AZSQL_SERVER,
     AZSQL_DB,
@@ -85,6 +85,7 @@ class SqlClient:
             raise
 
     def iter_query(self, sql: str, params: List[Any] = None, chunksize: int = 1000) -> Iterable[list[dict]]:
+        import pandas as pd
         logging.info("Executing iter_query: %s...", sql[:100])
         try:
             with self._conn() as cn:
