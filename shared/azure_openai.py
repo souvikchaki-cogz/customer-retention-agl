@@ -4,7 +4,7 @@ from typing import Optional
 from openai import AzureOpenAI
 from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from shared.config import (
-    AZURE_OPENAI_ENDPOINT,
+    AZURE_OPENAI_API_ENDPOINT,
     AZURE_OPENAI_DEPLOYMENTNAME,
     AZURE_OPENAI_API_KEY,
     AZURE_OPENAI_API_VERSION,
@@ -23,13 +23,13 @@ def get_openai_client() -> AzureOpenAI:
     if _client:
         return _client
 
-    endpoint = AZURE_OPENAI_ENDPOINT
+    endpoint = AZURE_OPENAI_API_ENDPOINT
     deployment = AZURE_OPENAI_DEPLOYMENTNAME
     api_key = AZURE_OPENAI_API_KEY
     api_version = AZURE_OPENAI_API_VERSION if AZURE_OPENAI_API_VERSION else "2025-01-01-preview"
 
     if not endpoint or not deployment:
-        raise ValueError("AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENTNAME must be set.")
+        raise ValueError("AZURE_OPENAI_API_ENDPOINT and AZURE_OPENAI_DEPLOYMENTNAME must be set.")
 
     try:
         if api_key:

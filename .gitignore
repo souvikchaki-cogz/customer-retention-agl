@@ -12,6 +12,7 @@ __pycache__/
 
 # ---- Virtual Environments ----
 .env
+.env.example
 .venv/
 venv/
 ENV/
@@ -54,3 +55,10 @@ spec_text/
 powerbi/
 data/
 .tmp/
+local.settings.json
+.env.example
+local.settings.json
+.env.example
+local.settings.json
+.env.example
+local.settings.json

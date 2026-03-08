@@ -8,7 +8,7 @@ from shared.discovery import generate_triggers
 #
 # Before running, ensure you have a .env file in the project root, or that
 # the following environment variables are set in your shell:
-# - AZURE_OPENAI_ENDPOINT
+# - AZURE_OPENAI_API_ENDPOINT
 # - AZURE_OPENAI_API_KEY
 # - AZURE_OPENAI_DEPLOYMENTNAME
 #
@@ -17,7 +17,7 @@ from shared.discovery import generate_triggers
 
 
 _REQUIRED_ENV_VARS = [
-    "AZURE_OPENAI_ENDPOINT",
+    "AZURE_OPENAI_API_ENDPOINT",
     "AZURE_OPENAI_API_KEY",
     "AZURE_OPENAI_DEPLOYMENTNAME",
 ]
