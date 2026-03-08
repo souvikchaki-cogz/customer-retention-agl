@@ -1,4 +1,5 @@
 """Azure Durable Functions App — AGL Energy Customer Churn Retention System."""
+import json
 import logging
 import time
 from datetime import datetime, timezone, date
@@ -12,15 +13,6 @@ from shared.pii import scrub_text
 from shared.rules import load_active_ruleset, score_event
 from shared.sql_client import SqlClient
 from shared.config import LEAD_SCORE_THRESHOLD, LOG_LEVEL
-
-# Import shared models
-from shared.models import (
-    EvaluateRequest, EvaluateResponse,
-    PredictResponse, TriggerStat,
-    ExistingTrigger, ExistingTriggersResponse,
-    ApproveTriggerRequest, ApproveTriggerResponse,
-    DeleteTriggerResponse
-)
 
 # --- Logging ---
 logging.basicConfig(
@@ -54,21 +46,17 @@ async def http_start_single_analysis(
     body = None
     try:
         body = req.get_json()
-        eval_req = EvaluateRequest(**body)
-        customer_id = eval_req.customer_id
-        note_text = eval_req.note
+        customer_id = body.get("customer_id")
+        note_text = body.get("note")
+        if not customer_id or not note_text:
+            raise ValueError("Missing customer_id or note")
     except Exception as e:
         logger.error("Invalid request format: %s", str(e))
         cid = "unknown"
         if isinstance(body, dict):
             cid = body.get("customer_id", "unknown")
-        err_resp = EvaluateResponse(
-            message="Please provide 'customer_id' and 'note' in the request body.",
-            customer_id=cid,
-            status="error"
-        )
         return func.HttpResponse(
-            err_resp.json(),
+            json.dumps({"message": "Please provide 'customer_id' and 'note' in the request body.", "customer_id": cid, "status": "error"}),
             mimetype="application/json",
             status_code=400
         )
@@ -90,14 +78,8 @@ async def http_start_single_analysis(
         return durable_client.create_check_status_response(req, instance_id)
     except Exception as e:
         logger.error("Error starting orchestration: %s", str(e))
-        err_resp = EvaluateResponse(
-            message="Failed to start analysis orchestration.",
-            customer_id=customer_id,
-            instance_id=None,
-            status="error"
-        )
         return func.HttpResponse(
-            err_resp.json(),
+            json.dumps({"message": "Failed to start analysis orchestration.", "customer_id": customer_id, "status": "error"}),
             mimetype="application/json",
             status_code=500
         )
