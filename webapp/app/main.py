@@ -6,7 +6,6 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 # Import all config/environment variables from one place
@@ -17,6 +16,7 @@ from shared.config import (
 # Import API schemas from shared.models instead of defining locally
 from shared.models import (
     EvaluateRequest, EvaluateResponse,
+    StatusResponse,
     PredictResponse, TriggerStat,
     ExistingTrigger, ExistingTriggersResponse,
     ApproveTriggerRequest, ApproveTriggerResponse,
@@ -63,8 +63,9 @@ async def _call_function_start(customer_id: str, note: str) -> Dict[str, Any]:
         if not FUNCTION_CODE:
             raise RuntimeError("FUNCTION_CODE env var required when FUNCTION_START_URL not provided")
         url = f"{FUNCTION_BASE_URL}/api/http_start_single_analysis?code={FUNCTION_CODE}"
-    payload = {"customer_id": customer_id, "note": note}
-    logger.debug("Calling Azure Function start URL=%s payload(customer_id,note)=%s", url, payload)
+    # Azure Function expects keys: customer_id and text (not 'note')
+    payload = {"customer_id": customer_id, "text": note}
+    logger.debug("Calling Azure Function start URL=%s payload(customer_id,text)=%s", url, payload)
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.post(url, json=payload)
         if r.status_code >= 400:
@@ -116,13 +117,6 @@ async def evaluate(req: EvaluateRequest):
         progress=progress,
         status=(custom_status or {}).get("status") if custom_status else None,
     )
-
-class StatusResponse(BaseModel):
-    instance_id: str
-    runtime_status: str | None = None
-    status: str | None = None
-    progress: int | None = None
-    result: dict | None = None
 
 @app.get('/api/evaluate/status/{instance_id}', response_model=StatusResponse)
 async def evaluate_status(instance_id: str):

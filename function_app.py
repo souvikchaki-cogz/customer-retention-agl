@@ -39,7 +39,7 @@ async def http_start_single_analysis(
 ) -> func.HttpResponse:
     """
     HTTP Trigger to start a single churn analysis for the interactive demo UI.
-    Expects a JSON body: { "customer_id": "...", "note": "..." }
+    Expects a JSON body: { "customer_id": "...", "text": "..." }
     """
     logger.info("HTTP trigger received request for single analysis.")
 
@@ -47,16 +47,16 @@ async def http_start_single_analysis(
     try:
         body = req.get_json()
         customer_id = body.get("customer_id")
-        note_text = body.get("note")
+        note_text = body.get("text")
         if not customer_id or not note_text:
-            raise ValueError("Missing customer_id or note")
+            raise ValueError("Missing customer_id or text")
     except Exception as e:
         logger.error("Invalid request format: %s", str(e))
         cid = "unknown"
         if isinstance(body, dict):
             cid = body.get("customer_id", "unknown")
         return func.HttpResponse(
-            json.dumps({"message": "Please provide 'customer_id' and 'note' in the request body.", "customer_id": cid, "status": "error"}),
+            json.dumps({"message": "Please provide 'customer_id' and 'text' in the request body.", "customer_id": cid, "status": "error"}),
             mimetype="application/json",
             status_code=400
         )
@@ -99,6 +99,7 @@ def orchestrator_event_replay(context: df.DurableOrchestrationContext):
         2. activity_fetch_structured  — Fetch AGL account features from SQL (tariff, bills, property signal)
         3. activity_evaluate_rules    — Combine text + structured signals → churn score
         4. activity_write_lead_card   — Persist lead card to DB (if score ≥ threshold)
+        5. activity_get_recommendation — Generate personalised retention recommendation (if lead emitted)
 
     Suppression gates (short-circuit before scoring):
         - Vulnerability guardrail: financial hardship / distress keywords
@@ -191,6 +192,19 @@ def orchestrator_event_replay(context: df.DurableOrchestrationContext):
             })
             logger.info("Calling activity: activity_write_lead_card")
             _ = yield context.call_activity("activity_write_lead_card", eval_result)
+            logger.info("activity_write_lead_card completed.")
+
+            # ── STEP 5: Get Personalised Recommendation ───────────────────────
+            context.set_custom_status({
+                "status": "Generating personalised retention recommendation...",
+                "progress": 95,
+                "detail": status_detail
+            })
+            logger.info("Calling activity: activity_get_recommendation")
+            rec_result = yield context.call_activity("activity_get_recommendation", eval_result)
+            eval_result["recommendation"] = rec_result.get("recommendation", "")
+            logger.info("activity_get_recommendation completed.")
+
             final_status = {
                 "status": "Done. Retention Lead Card has been generated.",
                 "progress": 100,
@@ -255,6 +269,9 @@ def activity_call_text_agent(payload: dict) -> dict:
         res["vulnerability_detected"] = is_vulnerable
         res["vulnerability_keywords"] = vulnerability_keywords
         res["ruleset_version"] = ruleset_version
+        # Observability metrics — aligned with bank application pattern
+        logger.info("Metric: guardrail_rejected=%d", 1 if is_vulnerable else 0)
+        logger.info("Metric: rule_hits_count=%d", len(res.get("rule_hits", [])))
         return res
 
     except Exception as e:
@@ -433,6 +450,9 @@ def activity_evaluate_rules(payload: dict) -> dict:
         )
         logger.info("Metric: churn_score=%.3f", score)
         logger.info("Metric: lead_emitted=%d", 1 if should_emit else 0)
+        # Structured observability metrics — aligned with bank application pattern
+        # Query in Application Insights: traces | where message startswith "Metric:"
+        logger.info("Metric: lead_score=%s", score)
 
         out = {
             "should_emit": should_emit,
@@ -508,3 +528,68 @@ def activity_write_lead_card(payload: dict) -> dict:
             customer_id, e
         )
         raise
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ACTIVITY: Get Recommendation (Step 5 — aligned with bank application pattern)
+# ─────────────────────────────────────────────────────────────────────────────
+
+@app.activity_trigger(input_name="payload")
+def activity_get_recommendation(payload: dict) -> dict:
+    """
+    Generates a personalised retention recommendation using the scored eval result.
+    Only called when a lead card has been emitted (score >= threshold).
+
+    Aligns with bank application pattern (Step 5 in the pipeline).
+
+    Input:  eval_result dict containing score, rule_hits_json, explanation_text,
+            structured_snapshot_json, customer_id
+    Output: { "recommendation": str }
+    """
+    logger.info("activity_get_recommendation started.")
+    customer_id = payload.get("customer_id", "unknown")
+    try:
+        score = payload.get("score", 0.0)
+        explanation = payload.get("explanation_text", "")
+        rule_hits = payload.get("rule_hits_json", [])
+
+        # Build a human-readable recommendation from the scored result
+        triggered_ids = []
+        if isinstance(rule_hits, list):
+            triggered_ids = [h.get("rule_id") for h in rule_hits if isinstance(h, dict) and h.get("hit")]
+        elif isinstance(rule_hits, str):
+            # Stored as Python repr string — parse what we can
+            triggered_ids = []
+
+        score_pct = round(score * 100)
+        if score_pct >= 80:
+            urgency = "HIGH PRIORITY"
+        elif score_pct >= 60:
+            urgency = "MEDIUM PRIORITY"
+        else:
+            urgency = "LOW PRIORITY"
+
+        triggers_summary = (
+            "Triggered rules: " + ", ".join(triggered_ids) if triggered_ids
+            else "No specific text rules triggered."
+        )
+
+        recommendation = (
+            f"[{urgency}] Customer {customer_id} has a churn score of {score_pct}%. "
+            f"{triggers_summary} "
+            f"Recommended action: {'Immediate outreach recommended — proactively contact customer with a tailored retention offer.' if score_pct >= 80 else 'Schedule a retention call within 5 business days.' if score_pct >= 60 else 'Monitor for further signals.'} "
+            f"Context: {explanation}"
+        )
+
+        logger.info(
+            "activity_get_recommendation completed for customer_id: %s (score=%s%%)",
+            customer_id, score_pct
+        )
+        return {"recommendation": recommendation}
+
+    except Exception as e:
+        logger.error(
+            "activity_get_recommendation failed for customer_id %s: %s",
+            customer_id, e
+        )
+        return {"recommendation": payload.get("explanation_text", "")}

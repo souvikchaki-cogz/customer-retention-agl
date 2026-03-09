@@ -283,7 +283,7 @@ deploy_function_app() {
     HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
         -X POST \
         -H "Content-Type: application/json" \
-        -d '{"customer_id":"SMOKE","note":"smoke test"}' \
+        -d '{"customer_id":"SMOKE","text":"smoke test"}' \
         "${FUNCTION_START_URL}")
 
     if [ "$HTTP_STATUS" = "202" ]; then
