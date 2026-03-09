@@ -450,9 +450,7 @@ def activity_evaluate_rules(payload: dict) -> dict:
         )
         logger.info("Metric: churn_score=%.3f", score)
         logger.info("Metric: lead_emitted=%d", 1 if should_emit else 0)
-        # Structured observability metrics — aligned with bank application pattern
         # Query in Application Insights: traces | where message startswith "Metric:"
-        logger.info("Metric: lead_score=%s", score)
 
         out = {
             "should_emit": should_emit,
