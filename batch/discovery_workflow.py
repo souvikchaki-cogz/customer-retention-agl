@@ -17,8 +17,8 @@ def write_discovery_cards(sql_client: SqlClient, triggers: list):
     """
     for trigger in triggers:
         sql = """
-        INSERT INTO agl_discovery_cards (phrase, support, lift, odds_ratio, fdr, examples_json, status, created_ts)
-        VALUES (?, ?, ?, ?, ?, ?, 'CANDIDATE', SYSDATETIME())
+        INSERT INTO dbo.agl_discovery_cards (phrase, support, lift, odds_ratio, p_value, fdr, examples_json, status, created_ts)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'CANDIDATE', SYSDATETIME())
         """
         # Map the richer trigger format from the shared function to the database schema
         example_phrases = trigger.get("example_phrases", "").split(",")
@@ -29,6 +29,7 @@ def write_discovery_cards(sql_client: SqlClient, triggers: list):
             float(trigger.get("support", {}).get("value", 0.0)),
             float(trigger.get("lift", {}).get("value", 0.0)),
             float(trigger.get("odds_ratio", {}).get("value", 0.0)),
+            float(trigger.get("p_value", 0.0)),
             float(trigger.get("fdr", 0.0)),
             examples_json
         ])
@@ -42,7 +43,7 @@ def main():
     sql_client = SqlClient()
     
     # Get existing rules to avoid duplicates
-    current_ruleset_query = "SELECT ruleset_yaml FROM agl_rules_library WHERE status = 'ACTIVE'"
+    current_ruleset_query = "SELECT TOP 1 ruleset_yaml FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
     current_ruleset_result = sql_client.fetch_one(current_ruleset_query)
     existing_phrases = []
     if current_ruleset_result:

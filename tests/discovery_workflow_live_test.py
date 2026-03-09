@@ -2,21 +2,22 @@ import os
 import sys
 import json
 
-# Add the parent directory to the path to allow imports from the batch folder
+# Add the parent directory to the path to allow imports from the shared folder
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from batch.discovery_workflow import get_openai_client, generate_synthetic_triggers
+from shared.azure_openai import get_openai_client
+from shared.discovery import generate_triggers
 
 # --- Prerequisites Check ---
 def check_env_vars():
     """Checks if the required environment variables are set."""
-    required_vars = ["AZURE_OPENAI_API_ENDPOINT", "AZURE_OPENAI_DEPLOYMENTNAME", "AZURE_OPENAI_API_KEY"]
+    required_vars = ["AZURE_OPENAI_API_ENDPOINT", "AZURE_OPENAI_DEPLOYMENTNAME"]
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     if missing_vars:
         print("Error: The following environment variables are not set:", ", ".join(missing_vars))
         print("Please set them in your environment before running this test.")
         sys.exit(1)
-    
+
     print("✅ Environment variables are set correctly.")
 
 # --- Test Execution ---
@@ -26,15 +27,10 @@ if __name__ == "__main__":
     print("\n▶️  Calling Azure OpenAI to generate synthetic triggers for AGL energy churn...")
 
     try:
-        # Get the OpenAI client
-        client = get_openai_client()
-
-        # Generate synthetic triggers
-        # Passing an empty dict for existing_rules to get fresh suggestions
-        new_triggers = generate_synthetic_triggers(client, {})
+        # generate_triggers() uses the shared OpenAI client internally
+        new_triggers = generate_triggers()
 
         print("\n✅ Success! OpenAI returned the following triggers:")
-        # Pretty-print the JSON output
         print(json.dumps(new_triggers, indent=2))
 
         print("\n--- Test Complete ---")
