@@ -128,20 +128,28 @@ def generate_triggers(prompt: str = PROMPT, exclude_phrases: Optional[List[str]]
             return _fallback_structured()
 
         trigger_list = data_json["triggers"]
-        # ... (Parsing logic omitted for brevity, but assumed present in full implementation)
-        # For the sake of the diff, I will assume the parsing logic is identical to the original
-        # but to save space I will return the raw list if parsing is complex, 
-        # however, to be correct I should include the parsing logic.
-        # Since I am creating a new file, I will just copy the parsing logic from the original context.
-        
-        # (Re-implementing the parsing logic from original file for correctness)
         if not isinstance(trigger_list, list):
             return _fallback_structured()
 
+        REQUIRED_TRIGGER_KEYS = {
+            "description",
+            "example_phrases",
+            "narrative_explanation",
+            "metrics_explanation",
+            "support",
+            "lift",
+            "odds_ratio",
+        }
+
         for item in trigger_list[:5]:
-            if not isinstance(item, dict): continue
-            
-            # Simplified parsing for the diff
+            if not isinstance(item, dict):
+                continue
+            if not REQUIRED_TRIGGER_KEYS.issubset(item.keys()):
+                logger.warning(
+                    "Skipping trigger item — missing required keys. Present keys: %s",
+                    list(item.keys())
+                )
+                continue
             try:
                 metrics_exp = item.get("metrics_explanation", {})
                 support_count = int(item["support"])
@@ -150,15 +158,29 @@ def generate_triggers(prompt: str = PROMPT, exclude_phrases: Optional[List[str]]
                     "description": str(item["description"]),
                     "example_phrases": str(item["example_phrases"]),
                     "narrative_explanation": str(item["narrative_explanation"]),
-                    "support": {"value": support_float, "explanation": metrics_exp.get("support", "")},
-                    "lift": {"value": float(item["lift"]), "explanation": metrics_exp.get("lift", "")},
-                    "odds_ratio": {"value": float(item["odds_ratio"]), "explanation": metrics_exp.get("odds_ratio", "")},
+                    "support": {
+                        "value": support_float,
+                        "explanation": metrics_exp.get("support", "The proportion of at-risk customers exhibiting this theme."),
+                    },
+                    "lift": {
+                        "value": float(item["lift"]),
+                        "explanation": metrics_exp.get("lift", "How much more likely these customers are to churn compared to average."),
+                    },
+                    "odds_ratio": {
+                        "value": float(item["odds_ratio"]),
+                        "explanation": metrics_exp.get("odds_ratio", "The odds of churn when this theme is present versus when it is not."),
+                    },
                     "p_value": float(item.get("p_value", 0.0)),
                     "fdr": float(item.get("fdr", 0.0)),
                 })
-            except Exception: continue
+            except (ValueError, TypeError, KeyError) as e:
+                logger.warning("Skipping trigger item due to parsing error: %s", e)
+                continue
 
-        return parsed if parsed else _fallback_structured()
+        if not parsed:
+            logger.warning("Parsed 0 triggers from OpenAI response. Returning fallback.")
+            return _fallback_structured()
+        return parsed
 
     except Exception:
         return _fallback_structured()

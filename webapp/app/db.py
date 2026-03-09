@@ -27,27 +27,13 @@ def load_yaml_file(path: str) -> Optional[dict]:
 
 def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
     """
-    Fetch rules from the agl_rules_library table and combine them with
-    hardcoded customer profile rules.
+    Fetch dynamic text rules from dbo.agl_rules_library (NOTE severity),
+    then append hardcoded AGL structured signal rules (CORE severity).
+    Mirrors the bank application pattern: DB-sourced rules first, CORE rules appended.
+    On DB failure, still returns CORE rules gracefully.
     """
     rows: List[Dict[str, Any]] = []
     rule_id_counter = 1
-
-    core_systems_rules = [
-        "Service address detected as listed for sale on property market",
-        "Service address detected as listed for rent on property market",
-        "Energy contract expiring within 60 days",
-        "Bill amount increased >25% quarter-on-quarter",
-        "Conditional discount recently removed or expired",
-    ]
-
-    for rule in core_systems_rules:
-        rows.append({
-            "id": rule_id_counter,
-            "phrase": rule,
-            "severity": "CORE",
-        })
-        rule_id_counter += 1
 
     sql_client = SqlClient()
     try:
@@ -89,6 +75,22 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
 
     except Exception as exc:
         logger.error("Failed to fetch or parse rules from agl_rules_library: %s", exc)
+
+    core_systems_rules = [
+        "Service address detected as listed for sale on property market",
+        "Service address detected as listed for rent on property market",
+        "Energy contract expiring within 60 days",
+        "Bill amount increased >25% quarter-on-quarter",
+        "Conditional discount recently removed or expired",
+    ]
+
+    for rule in core_systems_rules:
+        rows.append({
+            "id": rule_id_counter,
+            "phrase": rule,
+            "severity": "CORE",
+        })
+        rule_id_counter += 1
 
     return rows
 
@@ -163,7 +165,7 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
         if not row or not row.get("ruleset_yaml"):
             logger.info("No ACTIVE ruleset; falling back to most recent by activated_ts")
             row = sql_client.fetch_one(
-                "SELECT TOP 1 version, ruleset_yaml FROM dbo/agl_rules_library ORDER BY activated_ts DESC"
+                "SELECT TOP 1 version, ruleset_yaml FROM dbo.agl_rules_library ORDER BY activated_ts DESC"
             )
 
         if row and row.get("ruleset_yaml"):
@@ -241,6 +243,14 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
         return False
 
 def insert_trigger(phrase: str, severity: str) -> bool:
+    """
+    Insert an approved trigger phrase into dbo.agl_triggers (flat display table).
+
+    NOTE: This function is NOT called by the main /api/triggers/approve workflow.
+    Trigger approval writes to dbo.agl_rules_library via update_rules_library_with_new_trigger().
+    This function is retained for direct or batch inserts into the UI display table only.
+    Mirrors the architectural pattern in the bank application (backend/app/db.py).
+    """
     try:
         sql_client = SqlClient()
         sql_client.execute(

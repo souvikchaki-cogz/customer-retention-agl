@@ -63,3 +63,10 @@ class ApproveTriggerResponse(BaseModel):
 class DeleteTriggerResponse(BaseModel):
     id: int
     deleted: bool
+
+class StatusResponse(BaseModel):
+    instance_id: str
+    runtime_status: Optional[str] = None
+    status: Optional[str] = None
+    progress: Optional[int] = None
+    result: Optional[dict] = None
