@@ -47,6 +47,10 @@ class DiscoveryCard(BaseModel):
     p_value: float
     examples_json: Optional[str] = None
     status: str = "CANDIDATE"
+    narrative_explanation: Optional[str] = None
+    support_explanation: Optional[str] = None
+    lift_explanation: Optional[str] = None
+    odds_ratio_explanation: Optional[str] = None
 
 class ExistingTrigger(BaseModel):
     id: Optional[int] = None
