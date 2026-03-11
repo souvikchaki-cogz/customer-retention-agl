@@ -102,30 +102,51 @@ def _truncate_description(text: str, max_chars: int = 55) -> str:
 
 
 def _fallback_structured() -> List[Dict[str, Any]]:
-    """Provides a fallback list of triggers matching the new data contract."""
-    base = [
-    {
-        "description": "Requesting a refund before account closure.",
-        "example_phrases": "final meter read, selling the property, moving house, close my account",
-        "narrative_explanation": "Customers requesting final meter reads or mentioning a property sale are near-certain churners. Without a seamless account transfer offer, these customers are lost by default.",
-        "support": {"value": 0.18, "explanation": "18% of churned customers showed this behaviour in their final interaction."},
-        "lift": {"value": 4.2, "explanation": "These customers are 4.2x more likely to churn than the average customer."},
-        "odds_ratio": {"value": 6.1, "explanation": "The odds of account closure are 6.1x higher when this signal is present."},
-        "p_value": 0.0001,
-        "fdr": 0.0002,
-    },
-    {
-        "description": "Expressing concern over a high bill.",
-        "example_phrases": "shopping around, comparing retailers, this bill is too high, Energy Made Easy",
-        "narrative_explanation": "A sudden bill increase triggers active comparison behaviour. In Australia, switching energy retailers is low-friction — once comparison starts, retention probability drops sharply without a proactive offer.",
-        "support": {"value": 0.22, "explanation": "22% of at-risk customers exhibit bill-shock-driven comparison behaviour."},
-        "lift": {"value": 3.1, "explanation": "These customers are 3.1x more likely to churn than the average customer."},
-        "odds_ratio": {"value": 4.5, "explanation": "The odds of churn are 4.5x higher when bill shock signals are present."},
-        "p_value": 0.0005,
-        "fdr": 0.001,
-    },
-]
-    return base
+    """Provides a fallback list of triggers matching the new data contract.
+
+    These triggers represent novel churn signals that are NOT covered by the five
+    known drivers listed in PROMPT (move-out, bill shock, price comparison, discount
+    removal, contract expiry). They are intentionally distinct so they remain valid
+    under the prompt's instruction to avoid anchoring to those drivers.
+    """
+    return [
+        {
+            "description": "Expressing frustration with repeated errors.",
+            "example_phrases": (
+                "nobody calls me back, this is ridiculous, terrible service, "
+                "I keep getting different answers, still not fixed"
+            ),
+            "narrative_explanation": (
+                "Repeated service failures — billing errors, unanswered callbacks, "
+                "unresolved disputes — erode trust faster than price. Customers who "
+                "escalate frustration in contact centre interactions are significantly "
+                "more likely to switch within 30 days if the issue remains open."
+            ),
+            "support": {"value": 0.14, "explanation": "14% of churned customers flagged repeated service errors in their last interaction."},
+            "lift": {"value": 2.8, "explanation": "These customers are 2.8x more likely to churn than the average customer."},
+            "odds_ratio": {"value": 3.9, "explanation": "The odds of switching are 3.9x higher when service frustration signals are present."},
+            "p_value": 0.0008,
+            "fdr": 0.0015,
+        },
+        {
+            "description": "Asking about solar or battery install options.",
+            "example_phrases": (
+                "solar panels, feed-in tariff, battery storage, going solar, "
+                "solar rebate, rooftop solar, home battery"
+            ),
+            "narrative_explanation": (
+                "Customers exploring solar or battery installations are evaluating a "
+                "fundamental change to their energy setup. If AGL cannot offer a "
+                "competitive solar feed-in tariff or integrated battery plan, these "
+                "customers are likely to switch to a provider that can."
+            ),
+            "support": {"value": 0.11, "explanation": "11% of at-risk customers enquired about solar or battery options before churning."},
+            "lift": {"value": 2.4, "explanation": "These customers are 2.4x more likely to churn than the average customer."},
+            "odds_ratio": {"value": 3.2, "explanation": "The odds of churn are 3.2x higher when solar enquiry signals are present."},
+            "p_value": 0.002,
+            "fdr": 0.004,
+        },
+    ]
 
 
 def generate_triggers(prompt: str = PROMPT, exclude_phrases: Optional[List[str]] = None) -> List[Dict[str, Any]]:
@@ -224,8 +245,17 @@ def generate_triggers(prompt: str = PROMPT, exclude_phrases: Optional[List[str]]
                 continue
             try:
                 metrics_exp = item.get("metrics_explanation", {})
-                support_count = int(item["support"])
-                support_float = min(support_count / 1000.0, 1.0)
+
+                # Bug #1 fix: parse support as float to handle both integer counts
+                # (e.g. 120) and float proportions (e.g. 0.18) returned by the LLM.
+                # Values >= 1.0 are treated as raw counts and normalised to [0, 1]
+                # by dividing by 1000 (capped at 1.0).
+                # Values already in [0, 1) are used directly as proportions.
+                support_raw = float(item["support"])
+                if support_raw >= 1.0:
+                    support_float = min(support_raw / 1000.0, 1.0)
+                else:
+                    support_float = support_raw
 
                 raw_description = str(item["description"])
 

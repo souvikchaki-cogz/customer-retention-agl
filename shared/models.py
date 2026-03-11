@@ -19,6 +19,10 @@ class Metric(BaseModel):
     explanation: str
 
 class TriggerStat(BaseModel):
+    # discovery_id is populated when the trigger originates from agl_discovery_cards
+    # (i.e. was fetched from DB by /api/predict rather than generated live).
+    # It is None for fallback/offline triggers that were never written to DB.
+    discovery_id: Optional[int] = None
     description: str
     example_phrases: str
     narrative_explanation: str
@@ -30,6 +34,19 @@ class TriggerStat(BaseModel):
 
 class PredictResponse(BaseModel):
     triggers: List[TriggerStat]
+
+# DiscoveryCard mirrors a single row from agl_discovery_cards as returned
+# by fetch_candidate_discovery_cards(). Used internally by /api/predict.
+class DiscoveryCard(BaseModel):
+    discovery_id: int
+    phrase: str
+    support: float
+    lift: float
+    odds_ratio: float
+    fdr: float
+    p_value: float
+    examples_json: Optional[str] = None
+    status: str = "CANDIDATE"
 
 class ExistingTrigger(BaseModel):
     id: Optional[int] = None
@@ -46,6 +63,9 @@ class ExistingTriggersResponse(BaseModel):
     triggers: List[ExistingTrigger]
 
 class ApproveTriggerRequest(BaseModel):
+    # discovery_id links back to agl_discovery_cards so the approve endpoint
+    # can stamp the row as APPROVED alongside writing to agl_rules_library.
+    discovery_id: int
     phrase: str
     example_phrases: str
     support: float
@@ -59,6 +79,13 @@ class ApproveTriggerResponse(BaseModel):
     severity: str
     inserted: bool
     explanation: str
+
+class RejectTriggerRequest(BaseModel):
+    discovery_id: int
+
+class RejectTriggerResponse(BaseModel):
+    discovery_id: int
+    rejected: bool
 
 class DeleteTriggerResponse(BaseModel):
     id: int

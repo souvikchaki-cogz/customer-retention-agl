@@ -21,154 +21,144 @@ VALUES (
     '1.0.0',
     'ACTIVE',
     GETUTCDATE(),
-    'version: "1.0.0"
+    'version: 1.0.0
 confidence_floor: 0.55
 evidence_guard:
   min_chars: 4
 weights:
   property_sale_risk: 0.35
-  contract_expiry_risk: 0.20
-  bill_shock_risk: 0.20
+  contract_expiry_risk: 0.2
+  bill_shock_risk: 0.2
   no_concession_risk: 0.15
 text_rules:
   T1_FINAL_METER_READ:
-    id: "T1"
-    description: "Requesting a final meter read or bill before moving out."
-    weight: 0.50
+    id: T1
+    description: Requesting a final meter read or bill before moving out.
+    weight: 0.5
     phrase_hints:
-      - "final meter read"
-      - "final bill"
-      - "last bill before I move"
-      - "close my account"
-      - "disconnection date"
+      - final meter read
+      - final bill
+      - last bill before I move
+      - close my account
+      - disconnection date
     negations:
-      - "interim meter read"
-
+      - interim meter read
   T2_MOVE_OUT_REQUEST:
-    id: "T2"
-    description: "Stating a move out from the property."
+    id: T2
+    description: Stating a move out from the property.
     weight: 0.55
     phrase_hints:
-      - "moving out"
-      - "moving house"
-      - "we''re selling the property"
-      - "selling the house"
-      - "moving interstate"
-      - "property is being rented out"
-      - "settlement date"
-      - "lease is ending"
+      - moving out
+      - moving house
+      - we''re selling the property
+      - selling the house
+      - moving interstate
+      - property is being rented out
+      - settlement date
+      - lease is ending
     negations: []
-
   T3_ACCOUNT_TRANSFER_OR_CLOSURE:
-    id: "T3"
-    description: "Asking about account transfer, closure, or disconnection."
+    id: T3
+    description: Asking about account transfer, closure, or disconnection.
     weight: 0.45
     phrase_hints:
-      - "transfer my account"
-      - "close my account"
-      - "disconnect my service"
-      - "cancel my electricity"
-      - "how do I cancel"
-      - "notice period to close"
+      - transfer my account
+      - close my account
+      - disconnect my service
+      - cancel my electricity
+      - how do I cancel
+      - notice period to close
     negations:
-      - "transfer to solar"
-
+      - transfer to solar
   T4_CREDIT_REFUND_REQUEST:
-    id: "T4"
-    description: "Requesting a credit balance refund before closure."
+    id: T4
+    description: Requesting a credit balance refund before closure.
     weight: 0.35
     phrase_hints:
-      - "refund my credit"
-      - "get my credit back"
-      - "outstanding credit balance"
-      - "how do I get my refund"
+      - refund my credit
+      - get my credit back
+      - outstanding credit balance
+      - how do I get my refund
     negations: []
-
   T5_LANDLORD_TENANT_CHANGE:
-    id: "T5"
-    description: "Mentioning tenancy, landlord, or ownership change."
-    weight: 0.40
+    id: T5
+    description: Mentioning tenancy, landlord, or ownership change.
+    weight: 0.4
     phrase_hints:
-      - "new tenants moving in"
-      - "property changing hands"
-      - "landlord is selling"
-      - "new owner"
-      - "deceased estate"
-      - "estate administration"
+      - new tenants moving in
+      - property changing hands
+      - landlord is selling
+      - new owner
+      - deceased estate
+      - estate administration
     negations: []
-
   T6_BILL_SHOCK_COMPLAINT:
-    id: "T6"
-    description: "Expressing concern over a high bill."
+    id: T6
+    description: Expressing concern over a high bill.
     weight: 0.35
     phrase_hints:
-      - "bill is too high"
-      - "my bill doubled"
-      - "shocked by my bill"
-      - "this is way more than last quarter"
-      - "can''t afford this bill"
-      - "bill increased significantly"
+      - bill is too high
+      - my bill doubled
+      - shocked by my bill
+      - this is way more than last quarter
+      - can''t afford this bill
+      - bill increased significantly
     negations:
-      - "estimate"
-
+      - estimate
   T7_COMPARING_RETAILERS:
-    id: "T7"
-    description: "Comparing AGL with other retailers."
+    id: T7
+    description: Comparing AGL with other retailers.
     weight: 0.45
     phrase_hints:
-      - "shopping around"
-      - "comparing retailers"
-      - "cheaper provider"
-      - "better rates elsewhere"
-      - "Energy Made Easy"
-      - "found a cheaper plan"
-      - "competitor is offering"
+      - shopping around
+      - comparing retailers
+      - cheaper provider
+      - better rates elsewhere
+      - Energy Made Easy
+      - found a cheaper plan
+      - competitor is offering
     negations:
-      - "energy made easy account"
-
+      - energy made easy account
   T8_SWITCHING_PROCESS_ENQUIRY:
-    id: "T8"
-    description: "Asking about switching process or timeframe."
+    id: T8
+    description: Asking about switching process or timeframe.
     weight: 0.45
     phrase_hints:
-      - "how do I switch"
-      - "how long to transfer"
-      - "switching retailer"
-      - "cooling off period"
-      - "exit fee"
-      - "contract end date"
+      - how do I switch
+      - how long to transfer
+      - switching retailer
+      - cooling off period
+      - exit fee
+      - contract end date
     negations: []
-
   T9_PLAN_OR_DISCOUNT_ENQUIRY:
-    id: "T9"
-    description: "Inquiring about better plans or discounts."
+    id: T9
+    description: Inquiring about better plans or discounts.
     weight: 0.25
     phrase_hints:
-      - "any better plans"
-      - "what discounts are available"
-      - "conditional discount expired"
-      - "move to month to month"
-      - "pay on time discount"
-      - "solar feed-in tariff"
+      - any better plans
+      - what discounts are available
+      - conditional discount expired
+      - move to month to month
+      - pay on time discount
+      - solar feed-in tariff
     negations: []
-
   T10_HARDSHIP_SWITCH_RISK:
-    id: "T10"
-    description: "Mentioning financial hardship or payment difficulty."
-    weight: 0.30
+    id: T10
+    description: Mentioning financial hardship or payment difficulty.
+    weight: 0.3
     phrase_hints:
-      - "can''t afford"
-      - "hardship"
-      - "payment plan"
-      - "struggling to pay"
-      - "cost of living"
-      - "defer my payment"
+      - can''t afford
+      - hardship
+      - payment plan
+      - struggling to pay
+      - cost of living
+      - defer my payment
     negations: []
-
 decay:
   half_life_days: 21
 exclusions:
-  - "test account"
-  - "dummy data"
+  - test account
+  - dummy data
 '
 );

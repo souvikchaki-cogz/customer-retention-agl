@@ -93,7 +93,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await resp.json();
       if (Array.isArray(data.triggers) && data.triggers.length > 0) {
         const triggerCards = data.triggers.map(t => {
-          // Store the original trigger object for the approval payload
+          // Store the original trigger object for the approval/rejection payload.
+          // discovery_id is included naturally because it is part of the TriggerStat
+          // returned by the /api/predict endpoint.
           const triggerData = JSON.stringify(t).replace(/'/g, "&apos;");
 
           const metricsHtml = [
@@ -149,10 +151,12 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!dataAttr) return null;
       const trigger = JSON.parse(dataAttr.replace(/&apos;/g, "'"));
 
-      // The approve endpoint expects a flat structure, so we create it here.
+      // The approve endpoint expects a flat structure including discovery_id so
+      // it can stamp the agl_discovery_cards row as APPROVED.
       return {
-        phrase: trigger.description, // Map description to phrase
-        example_phrases: trigger.example_phrases, // Added this line
+        discovery_id: trigger.discovery_id,  // Change 2: include discovery_id
+        phrase: trigger.description,
+        example_phrases: trigger.example_phrases,
         support: trigger.support.value,
         lift: trigger.lift.value,
         odds_ratio: trigger.odds_ratio.value,
@@ -171,8 +175,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const card = e.target.closest('[data-trigger]');
         const payload = deriveApprovalPayload(card);
         if (!payload) {
-          // Use a modal or a div instead of alert
-          // alert('Could not process this trigger for approval.');
           return;
         }
         btn.disabled = true;
@@ -202,18 +204,38 @@ document.addEventListener('DOMContentLoaded', () => {
           setTimeout(() => card.remove(), 300);
         } catch (err) {
           console.error('Approve failed', err);
-          // Use a modal or a div instead of alert
-          // alert(`Failed to approve trigger: ${err.message}`);
-          // Restore button if failed
+          // Restore buttons if failed
           e.target.closest('.flex').innerHTML = `<button class="disapprove py-2 px-4 text-sm font-medium text-gray-700 bg-white rounded-md border border-gray-300 hover:bg-gray-50">Reject</button><button class="approve py-2 px-4 text-sm font-medium text-white bg-indigo-600 rounded-md border border-transparent hover:bg-indigo-700">Approve</button>`;
+          wirePredictionActions();
         }
       });
     });
 
+    // Change 3: Reject button calls POST /api/triggers/reject with discovery_id
+    // before dismissing the card so the DB row is stamped REJECTED.
     predictOutput.querySelectorAll('.disapprove').forEach(btn => {
-      btn.addEventListener('click', (e) => {
+      btn.addEventListener('click', async (e) => {
         const card = e.target.closest('[data-trigger]');
         e.target.closest('.flex').innerHTML = '<p class="text-red-600 font-semibold">Rejected</p>';
+
+        // Fire-and-forget the reject API call — the card is dismissed regardless
+        // of whether the API call succeeds, to keep the UX responsive.
+        try {
+          const dataAttr = card.getAttribute('data-trigger');
+          if (dataAttr) {
+            const trigger = JSON.parse(dataAttr.replace(/&apos;/g, "'"));
+            if (trigger.discovery_id != null) {
+              fetch(`${apiBase}/api/triggers/reject`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ discovery_id: trigger.discovery_id }),
+              }).catch(err => console.warn('Reject API call failed (non-blocking):', err));
+            }
+          }
+        } catch (parseErr) {
+          console.warn('Could not parse trigger data for reject call:', parseErr);
+        }
+
         card.style.transform = 'scale(0.95)';
         card.style.opacity = '0';
         setTimeout(() => card.remove(), 300);
@@ -357,8 +379,6 @@ document.addEventListener('DOMContentLoaded', () => {
       // These mirror the four structured scoring signals in shared/rules.py → score_event()
 
       // Signal 1: Property listed for sale or rent on the property market
-      // Source: agl_structured.property_listing_status (set by property market scanner job)
-      // Weight: +0.35 (highest — near-certain move-out)
       const listingStatus = snapshot.property_listing_status;
       const isForSale = listingStatus === 'FOR_SALE';
       const isForRent = listingStatus === 'FOR_RENT';
@@ -375,8 +395,6 @@ document.addEventListener('DOMContentLoaded', () => {
           : snapshot.service_address || '';
 
       // Signal 2: Energy contract expiring within 60 days
-      // Source: agl_structured.contract_end_date
-      // Weight: +0.20
       const contractEndRaw = snapshot.contract_end_date;
       const daysToContract = contractEndRaw
         ? Math.round((new Date(contractEndRaw) - new Date()) / 86_400_000)
@@ -393,8 +411,6 @@ document.addEventListener('DOMContentLoaded', () => {
           : 'No contract end date on record';
 
       // Signal 3: Bill amount increased >25% quarter-on-quarter (bill shock)
-      // Source: agl_structured.last_bill_amount vs prev_bill_amount
-      // Weight: +0.20
       const lastBill = Number(snapshot.last_bill_amount);
       const prevBill = Number(snapshot.prev_bill_amount);
       const billsKnown = Number.isFinite(lastBill) && Number.isFinite(prevBill) && prevBill > 0;
@@ -406,8 +422,6 @@ document.addEventListener('DOMContentLoaded', () => {
         : 'Bill data not available';
 
       // Signal 4: Conditional discount recently removed or expired
-      // Source: agl_structured.conditional_discount_removed
-      // Weight: +0.15
       const discountRemovedActive = !!snapshot.conditional_discount_removed;
       const discountRemovedSubtext = discountRemovedActive
         ? 'Pay-on-time or loyalty discount has been removed'

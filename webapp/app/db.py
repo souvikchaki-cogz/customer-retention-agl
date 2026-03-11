@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import List, Dict, Any, Optional
 import yaml
@@ -7,6 +8,12 @@ from shared.config import LOG_LEVEL, DEFAULT_RULESET_YAML_PATH
 
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger(__name__)
+
+# Maximum number of CANDIDATE discovery cards allowed in agl_discovery_cards.
+# /api/predict will only call generate_triggers() when the live count is below
+# this threshold, preventing runaway OpenAI spend on repeated predict clicks.
+DISCOVERY_CARDS_MAX = 5
+
 
 def load_yaml_file(path: str) -> Optional[dict]:
     """Safely load YAML file with logging."""
@@ -24,6 +31,7 @@ def load_yaml_file(path: str) -> Optional[dict]:
     except Exception as e:
         logger.error("Unexpected error loading YAML file %s: %s", path, e)
         return None
+
 
 def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
     """
@@ -95,7 +103,6 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
     return rows
 
 
-# ── NEW FUNCTION ──────────────────────────────────────────────────────────────
 def fetch_existing_rule_phrases() -> List[str]:
     """
     Return the human-readable description of every approved text rule currently
@@ -149,7 +156,138 @@ def fetch_existing_rule_phrases() -> List[str]:
         logger.error("fetch_existing_rule_phrases: unexpected error: %s", exc)
 
     return phrases
-# ─────────────────────────────────────────────────────────────────────────────
+
+
+# -----------------------------------------------------------------------------
+# agl_discovery_cards helpers
+# -----------------------------------------------------------------------------
+
+def count_candidate_discovery_cards() -> int:
+    """
+    Return the number of rows in agl_discovery_cards with status = 'CANDIDATE'.
+    Used by /api/predict to decide whether new triggers need to be generated.
+    Returns 0 on any DB error so the caller falls through to generation.
+    """
+    try:
+        sql_client = SqlClient()
+        result = sql_client.fetch_one(
+            "SELECT COUNT(*) AS cnt FROM dbo.agl_discovery_cards WHERE status = 'CANDIDATE'"
+        )
+        if result and result.get("cnt") is not None:
+            return int(result["cnt"])
+        return 0
+    except Exception as exc:
+        logger.error("count_candidate_discovery_cards failed: %s", exc)
+        return 0
+
+
+def fetch_candidate_discovery_cards() -> List[Dict[str, Any]]:
+    """
+    Fetch all CANDIDATE rows from agl_discovery_cards ordered by created_ts DESC.
+    Returns a list of plain dicts with keys matching the DiscoveryCard model:
+      discovery_id, phrase, support, lift, odds_ratio, fdr, p_value, examples_json, status
+    Returns an empty list on any DB error.
+    """
+    try:
+        sql_client = SqlClient()
+        rows = sql_client.fetch_all(
+            "SELECT discovery_id, phrase, support, lift, odds_ratio, fdr, p_value, "
+            "examples_json, status "
+            "FROM dbo.agl_discovery_cards "
+            "WHERE status = 'CANDIDATE' "
+            "ORDER BY created_ts DESC"
+        )
+        if not rows:
+            return []
+        return [dict(r) for r in rows]
+    except Exception as exc:
+        logger.error("fetch_candidate_discovery_cards failed: %s", exc)
+        return []
+
+
+def insert_discovery_cards(triggers: List[Dict[str, Any]]) -> int:
+    """
+    Bulk-insert a list of generated trigger dicts into agl_discovery_cards
+    with status = 'CANDIDATE'.
+
+    Each trigger dict must contain:
+      description, example_phrases, support (float), lift (float),
+      odds_ratio (float), p_value (float), fdr (float)
+
+    Returns the number of rows successfully inserted.
+    Skips individual rows on error and logs the failure.
+    """
+    if not triggers:
+        return 0
+
+    sql_client = SqlClient()
+    inserted = 0
+    created_ts = datetime.utcnow()
+
+    for t in triggers:
+        try:
+            phrase = str(t.get("description", ""))[:512]
+            support = float(t.get("support", {}).get("value", 0.0) if isinstance(t.get("support"), dict) else t.get("support", 0.0))
+            lift = float(t.get("lift", {}).get("value", 0.0) if isinstance(t.get("lift"), dict) else t.get("lift", 0.0))
+            odds_ratio = float(t.get("odds_ratio", {}).get("value", 0.0) if isinstance(t.get("odds_ratio"), dict) else t.get("odds_ratio", 0.0))
+            fdr = float(t.get("fdr", 0.0))
+            p_value = float(t.get("p_value", 0.0))
+            # example_phrases may be a comma-separated string; store as JSON array
+            raw_phrases = t.get("example_phrases", "")
+            if isinstance(raw_phrases, str):
+                phrase_list = [p.strip() for p in raw_phrases.split(",") if p.strip()]
+            else:
+                phrase_list = list(raw_phrases)
+            examples_json = json.dumps(phrase_list)
+
+            sql_client.execute(
+                "INSERT INTO dbo.agl_discovery_cards "
+                "(phrase, support, lift, odds_ratio, fdr, p_value, examples_json, status, created_ts) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'CANDIDATE', ?)",
+                [phrase, support, lift, odds_ratio, fdr, p_value, examples_json, created_ts]
+            )
+            inserted += 1
+        except Exception as exc:
+            logger.error("insert_discovery_cards: failed to insert row for phrase=%r: %s", t.get("description"), exc)
+            continue
+
+    logger.info("insert_discovery_cards: inserted %d/%d rows", inserted, len(triggers))
+    return inserted
+
+
+def update_discovery_card_status(discovery_id: int, status: str) -> bool:
+    """
+    Update the status of a single row in agl_discovery_cards.
+    status must be 'APPROVED' or 'REJECTED'.
+    Returns True if exactly one row was updated, False otherwise.
+    """
+    if status not in ("APPROVED", "REJECTED"):
+        logger.error(
+            "update_discovery_card_status: invalid status %r for discovery_id=%s",
+            status, discovery_id
+        )
+        return False
+    try:
+        sql_client = SqlClient()
+        rowcount = sql_client.execute(
+            "UPDATE dbo.agl_discovery_cards SET status = ? WHERE discovery_id = ?",
+            [status, discovery_id]
+        )
+        if rowcount != 1:
+            logger.warning(
+                "update_discovery_card_status: expected 1 row updated for discovery_id=%s, got %s",
+                discovery_id, rowcount
+            )
+            return False
+        logger.debug(
+            "update_discovery_card_status: discovery_id=%s → %s", discovery_id, status
+        )
+        return True
+    except Exception as exc:
+        logger.error(
+            "update_discovery_card_status failed for discovery_id=%s: %s", discovery_id, exc
+        )
+        return False
 
 
 def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odds_ratio: float) -> bool:
@@ -214,7 +352,6 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
     sql_client = SqlClient()
     ruleset_yaml_str: Optional[str] = None
     current_version: str = "0.1.0"
-    # Try DB; fallback to standardized YAML if needed
     try:
         row = sql_client.fetch_one(
             "SELECT TOP 1 version, ruleset_yaml FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
@@ -299,6 +436,7 @@ def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odd
         logger.error("Unexpected failure updating agl_rules_library: %s", exc)
         return False
 
+
 def insert_trigger(phrase: str, severity: str) -> bool:
     """
     Insert an approved trigger phrase into dbo.agl_triggers (flat display table).
@@ -306,7 +444,6 @@ def insert_trigger(phrase: str, severity: str) -> bool:
     NOTE: This function is NOT called by the main /api/triggers/approve workflow.
     Trigger approval writes to dbo.agl_rules_library via update_rules_library_with_new_trigger().
     This function is retained for direct or batch inserts into the UI display table only.
-    Mirrors the architectural pattern in the bank application (backend/app/db.py).
     """
     try:
         sql_client = SqlClient()
@@ -319,6 +456,7 @@ def insert_trigger(phrase: str, severity: str) -> bool:
     except Exception as exc:
         logger.error("Failed to insert trigger: %s", exc)
         return False
+
 
 def delete_trigger(trigger_id: int) -> bool:
     try:
