@@ -38,8 +38,8 @@ document.addEventListener('DOMContentLoaded', () => {
       const customerNotesTriggers = data.triggers.filter(t => t.severity === 'NOTE');
       const coreSystemsTriggers = data.triggers.filter(t => t.severity === 'CORE');
 
-      const customerNotesHtml = customerNotesTriggers.map(t => `<li class="py-1">${escapeHtml(t.phrase)}</li>`).join('');
-      const coreSystemsHtml = coreSystemsTriggers.map(t => `<li class="py-1">${escapeHtml(t.phrase)}</li>`).join('');
+      const customerNotesHtml = customerNotesTriggers.map(t => `<li class="py-1">${t.phrase}</li>`).join('');
+      const coreSystemsHtml = coreSystemsTriggers.map(t => `<li class="py-1">${t.phrase}</li>`).join('');
 
       existingTriggersContainer.innerHTML = `
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -93,9 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const data = await resp.json();
       if (Array.isArray(data.triggers) && data.triggers.length > 0) {
         const triggerCards = data.triggers.map(t => {
-          // Store the original trigger object for the approval/rejection payload.
-          // discovery_id is included naturally because it is part of the TriggerStat
-          // returned by the /api/predict endpoint.
+          // Store the original trigger object for the approval payload
           const triggerData = JSON.stringify(t).replace(/'/g, "&apos;");
 
           const metricsHtml = [
@@ -106,7 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
             <div class="text-center">
               <div class="tooltip">
                 <span class="text-sm text-gray-500">${m.label}</span>
-                <span class="tooltip-text">${escapeHtml(m.metric.explanation)}</span>
+                <span class="tooltip-text">${m.metric.explanation}</span>
               </div>
               <p class="text-xl font-bold text-indigo-600">${(m.label === 'Support' ? m.metric.value * 100 : m.metric.value).toFixed(1)}${m.label === 'Support' ? '%' : 'x'}</p>
             </div>`).join('');
@@ -114,11 +112,11 @@ document.addEventListener('DOMContentLoaded', () => {
           return `
             <div class="bg-white rounded-lg shadow-lg overflow-hidden transition-all duration-300" data-trigger='${triggerData}'>
               <div class="p-6">
-                <h3 class="text-lg font-bold text-gray-900">${escapeHtml(t.description)}</h3>
-                <p class="mt-2 text-sm text-gray-600">${escapeHtml(t.narrative_explanation)}</p>
-
+                <h3 class="text-lg font-bold text-gray-900">${t.description}</h3>
+                <p class="mt-2 text-sm text-gray-600">${t.narrative_explanation}</p>
+                
                 <div class="mt-4 p-3 bg-gray-50 rounded-md">
-                  <p class="text-xs text-gray-500 font-mono">${escapeHtml(t.example_phrases)}</p>
+                  <p class="text-xs text-gray-500 font-mono">${t.example_phrases}</p>
                 </div>
 
                 <div class="mt-4 grid grid-cols-3 gap-4 border-t border-b border-gray-200 py-4">
@@ -151,12 +149,10 @@ document.addEventListener('DOMContentLoaded', () => {
       if (!dataAttr) return null;
       const trigger = JSON.parse(dataAttr.replace(/&apos;/g, "'"));
 
-      // The approve endpoint expects a flat structure including discovery_id so
-      // it can stamp the agl_discovery_cards row as APPROVED.
+      // The approve endpoint expects a flat structure, so we create it here.
       return {
-        discovery_id: trigger.discovery_id,
-        phrase: trigger.description,
-        example_phrases: trigger.example_phrases,
+        phrase: trigger.description, // Map description to phrase
+        example_phrases: trigger.example_phrases, // Added this line
         support: trigger.support.value,
         lift: trigger.lift.value,
         odds_ratio: trigger.odds_ratio.value,
@@ -175,6 +171,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const card = e.target.closest('[data-trigger]');
         const payload = deriveApprovalPayload(card);
         if (!payload) {
+          // Use a modal or a div instead of alert
+          // alert('Could not process this trigger for approval.');
           return;
         }
         btn.disabled = true;
@@ -204,38 +202,18 @@ document.addEventListener('DOMContentLoaded', () => {
           setTimeout(() => card.remove(), 300);
         } catch (err) {
           console.error('Approve failed', err);
-          // Restore buttons if failed
+          // Use a modal or a div instead of alert
+          // alert(`Failed to approve trigger: ${err.message}`);
+          // Restore button if failed
           e.target.closest('.flex').innerHTML = `<button class="disapprove py-2 px-4 text-sm font-medium text-gray-700 bg-white rounded-md border border-gray-300 hover:bg-gray-50">Reject</button><button class="approve py-2 px-4 text-sm font-medium text-white bg-indigo-600 rounded-md border border-transparent hover:bg-indigo-700">Approve</button>`;
-          wirePredictionActions();
         }
       });
     });
 
-    // Reject button calls POST /api/triggers/reject with discovery_id
-    // before dismissing the card so the DB row is stamped REJECTED.
     predictOutput.querySelectorAll('.disapprove').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
+      btn.addEventListener('click', (e) => {
         const card = e.target.closest('[data-trigger]');
         e.target.closest('.flex').innerHTML = '<p class="text-red-600 font-semibold">Rejected</p>';
-
-        // Fire-and-forget the reject API call — the card is dismissed regardless
-        // of whether the API call succeeds, to keep the UX responsive.
-        try {
-          const dataAttr = card.getAttribute('data-trigger');
-          if (dataAttr) {
-            const trigger = JSON.parse(dataAttr.replace(/&apos;/g, "'"));
-            if (trigger.discovery_id != null) {
-              fetch(`${apiBase}/api/triggers/reject`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ discovery_id: trigger.discovery_id }),
-              }).catch(err => console.warn('Reject API call failed (non-blocking):', err));
-            }
-          }
-        } catch (parseErr) {
-          console.warn('Could not parse trigger data for reject call:', parseErr);
-        }
-
         card.style.transform = 'scale(0.95)';
         card.style.opacity = '0';
         setTimeout(() => card.remove(), 300);
@@ -268,7 +246,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const data = await resp.json();
-      evaluateOutput.innerHTML = `<p class="text-green-600">Evaluation triggered for Customer ID: ${escapeHtml(data.customer_id)}</p>`;
+      evaluateOutput.innerHTML = `<p class="text-green-600">Evaluation triggered for Customer ID: ${data.customer_id}</p>`;
 
       if (data.instance_id && data.status_query_url) {
         pollEvaluationStatus(data.instance_id, data.status_query_url);
@@ -278,7 +256,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     } catch (err) {
       console.error('Evaluation error', err);
-      evaluateOutput.innerHTML = `<p class="text-red-500">Error: ${escapeHtml(err.message)}</p>`;
+      evaluateOutput.innerHTML = `<p class="text-red-500">Error: ${err.message}</p>`;
     } finally {
       setLoading(evaluateBtn, false);
     }
@@ -296,9 +274,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = await resp.json();
 
         evaluationStatusDiv.innerHTML = `
-          <p>Status: <strong>${escapeHtml(data.runtime_status)}</strong></p>
-          <p>Progress: ${data.progress !== null ? escapeHtml(String(data.progress)) + '%' : 'N/A'}</p>
-          ${data.status ? `<p>Details: ${escapeHtml(data.status)}</p>` : ''}
+          <p>Status: <strong>${data.runtime_status}</strong></p>
+          <p>Progress: ${data.progress !== null ? data.progress + '%' : 'N/A'}</p>
+          ${data.status ? `<p>Details: ${data.status}</p>` : ''}
         `;
 
         if (data.runtime_status === 'Completed' || data.runtime_status === 'Failed' || data.runtime_status === 'Terminated') {
@@ -306,15 +284,15 @@ document.addEventListener('DOMContentLoaded', () => {
           if (data.result) {
             evaluationResultDiv.innerHTML = renderEvaluationResult(data.result);
           } else if (data.status) {
-            evaluationResultDiv.innerHTML = `<p class="text-red-500">Evaluation ${escapeHtml(data.runtime_status)}: ${escapeHtml(data.status)}</p>`;
+            evaluationResultDiv.innerHTML = `<p class="text-red-500">Evaluation ${data.runtime_status}: ${data.status}</p>`;
           } else {
-            evaluationResultDiv.innerHTML = `<p class="text-red-500">Evaluation ${escapeHtml(data.runtime_status)}.</p>`;
+            evaluationResultDiv.innerHTML = `<p class="text-red-500">Evaluation ${data.runtime_status}.</p>`;
           }
         }
       } catch (err) {
         console.error('Polling error', err);
         clearInterval(pollInterval);
-        evaluationStatusDiv.innerHTML = `<p class="text-red-500">Error polling status: ${escapeHtml(err.message)}</p>`;
+        evaluationStatusDiv.innerHTML = `<p class="text-red-500">Error polling status: ${err.message}</p>`;
       }
     };
 
@@ -379,6 +357,8 @@ document.addEventListener('DOMContentLoaded', () => {
       // These mirror the four structured scoring signals in shared/rules.py → score_event()
 
       // Signal 1: Property listed for sale or rent on the property market
+      // Source: agl_structured.property_listing_status (set by property market scanner job)
+      // Weight: +0.35 (highest — near-certain move-out)
       const listingStatus = snapshot.property_listing_status;
       const isForSale = listingStatus === 'FOR_SALE';
       const isForRent = listingStatus === 'FOR_RENT';
@@ -395,6 +375,8 @@ document.addEventListener('DOMContentLoaded', () => {
           : snapshot.service_address || '';
 
       // Signal 2: Energy contract expiring within 60 days
+      // Source: agl_structured.contract_end_date
+      // Weight: +0.20
       const contractEndRaw = snapshot.contract_end_date;
       const daysToContract = contractEndRaw
         ? Math.round((new Date(contractEndRaw) - new Date()) / 86_400_000)
@@ -411,6 +393,8 @@ document.addEventListener('DOMContentLoaded', () => {
           : 'No contract end date on record';
 
       // Signal 3: Bill amount increased >25% quarter-on-quarter (bill shock)
+      // Source: agl_structured.last_bill_amount vs prev_bill_amount
+      // Weight: +0.20
       const lastBill = Number(snapshot.last_bill_amount);
       const prevBill = Number(snapshot.prev_bill_amount);
       const billsKnown = Number.isFinite(lastBill) && Number.isFinite(prevBill) && prevBill > 0;
@@ -422,6 +406,8 @@ document.addEventListener('DOMContentLoaded', () => {
         : 'Bill data not available';
 
       // Signal 4: Conditional discount recently removed or expired
+      // Source: agl_structured.conditional_discount_removed
+      // Weight: +0.15
       const discountRemovedActive = !!snapshot.conditional_discount_removed;
       const discountRemovedSubtext = discountRemovedActive
         ? 'Pay-on-time or loyalty discount has been removed'

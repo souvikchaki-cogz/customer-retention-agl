@@ -263,31 +263,6 @@ class SqlClient:
             logging.error("An unexpected error occurred in fetch_one: %s", e)
             raise
 
-    def fetch_all(self, sql: str, params: List[Any] = None) -> List[Dict[str, Any]]:
-        """
-        Execute a query and return all rows as a list of dicts.
-        Returns an empty list when no rows match or the statement produces no result set.
-        Re-raises any exception after logging.
-        """
-        logging.info("Executing fetch_all: %s...", sql[:100])
-        try:
-            with self._transaction() as cn:
-                cur = cn.cursor()
-                cur.execute(sql, params or [])
-                if not cur.description:
-                    logging.info("fetch_all: statement produced no result set.")
-                    return []
-                cols = [c[0] for c in cur.description]
-                rows = cur.fetchall()
-            logging.info("fetch_all returned %d row(s).", len(rows))
-            return [{k: v for k, v in zip(cols, row)} for row in rows]
-        except pyodbc.Error as ex:
-            logging.error("Database error in fetch_all: %s", ex)
-            raise
-        except Exception as e:
-            logging.error("An unexpected error occurred in fetch_all: %s", e)
-            raise
-
     def iter_query(
         self,
         sql: str,
