@@ -184,15 +184,19 @@ def count_candidate_discovery_cards() -> int:
 def fetch_candidate_discovery_cards() -> List[Dict[str, Any]]:
     """
     Fetch all CANDIDATE rows from agl_discovery_cards ordered by created_ts DESC.
-    Returns a list of plain dicts with keys matching the DiscoveryCard model:
-      discovery_id, phrase, support, lift, odds_ratio, fdr, p_value, examples_json, status
+    Returns a list of plain dicts with keys matching the DiscoveryCard model plus
+    the explanation columns added in the schema migration:
+      discovery_id, phrase, support, lift, odds_ratio, fdr, p_value, examples_json,
+      narrative_explanation, support_explanation, lift_explanation,
+      odds_ratio_explanation, status
     Returns an empty list on any DB error.
     """
     try:
         sql_client = SqlClient()
         rows = sql_client.fetch_all(
             "SELECT discovery_id, phrase, support, lift, odds_ratio, fdr, p_value, "
-            "examples_json, status "
+            "examples_json, narrative_explanation, support_explanation, "
+            "lift_explanation, odds_ratio_explanation, status "
             "FROM dbo.agl_discovery_cards "
             "WHERE status = 'CANDIDATE' "
             "ORDER BY created_ts DESC"
@@ -211,8 +215,10 @@ def insert_discovery_cards(triggers: List[Dict[str, Any]]) -> int:
     with status = 'CANDIDATE'.
 
     Each trigger dict must contain:
-      description, example_phrases, support (float), lift (float),
-      odds_ratio (float), p_value (float), fdr (float)
+      description, example_phrases, support (float or dict), lift (float or dict),
+      odds_ratio (float or dict), p_value (float), fdr (float),
+      narrative_explanation (str), and optionally a metrics_explanation dict
+      with keys support, lift, odds_ratio for the explanation text.
 
     Returns the number of rows successfully inserted.
     Skips individual rows on error and logs the failure.
@@ -227,11 +233,38 @@ def insert_discovery_cards(triggers: List[Dict[str, Any]]) -> int:
     for t in triggers:
         try:
             phrase = str(t.get("description", ""))[:512]
-            support = float(t.get("support", {}).get("value", 0.0) if isinstance(t.get("support"), dict) else t.get("support", 0.0))
-            lift = float(t.get("lift", {}).get("value", 0.0) if isinstance(t.get("lift"), dict) else t.get("lift", 0.0))
-            odds_ratio = float(t.get("odds_ratio", {}).get("value", 0.0) if isinstance(t.get("odds_ratio"), dict) else t.get("odds_ratio", 0.0))
+
+            # Support both dict-wrapped metrics (from OpenAI path) and bare floats
+            # (from any legacy or batch path). This guard prevents AttributeError
+            # when the field is a raw float rather than {"value": ..., "explanation": ...}.
+            support_raw = t.get("support", 0.0)
+            if isinstance(support_raw, dict):
+                support = float(support_raw.get("value", 0.0))
+                support_explanation = str(support_raw.get("explanation", ""))
+            else:
+                support = float(support_raw)
+                support_explanation = ""
+
+            lift_raw = t.get("lift", 0.0)
+            if isinstance(lift_raw, dict):
+                lift = float(lift_raw.get("value", 0.0))
+                lift_explanation = str(lift_raw.get("explanation", ""))
+            else:
+                lift = float(lift_raw)
+                lift_explanation = ""
+
+            odds_ratio_raw = t.get("odds_ratio", 0.0)
+            if isinstance(odds_ratio_raw, dict):
+                odds_ratio = float(odds_ratio_raw.get("value", 0.0))
+                odds_ratio_explanation = str(odds_ratio_raw.get("explanation", ""))
+            else:
+                odds_ratio = float(odds_ratio_raw)
+                odds_ratio_explanation = ""
+
             fdr = float(t.get("fdr", 0.0))
             p_value = float(t.get("p_value", 0.0))
+            narrative_explanation = str(t.get("narrative_explanation", ""))
+
             # example_phrases may be a comma-separated string; store as JSON array
             raw_phrases = t.get("example_phrases", "")
             if isinstance(raw_phrases, str):
@@ -242,9 +275,16 @@ def insert_discovery_cards(triggers: List[Dict[str, Any]]) -> int:
 
             sql_client.execute(
                 "INSERT INTO dbo.agl_discovery_cards "
-                "(phrase, support, lift, odds_ratio, fdr, p_value, examples_json, status, created_ts) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, 'CANDIDATE', ?)",
-                [phrase, support, lift, odds_ratio, fdr, p_value, examples_json, created_ts]
+                "(phrase, support, lift, odds_ratio, fdr, p_value, examples_json, "
+                " narrative_explanation, support_explanation, lift_explanation, "
+                " odds_ratio_explanation, status, created_ts) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'CANDIDATE', ?)",
+                [
+                    phrase, support, lift, odds_ratio, fdr, p_value, examples_json,
+                    narrative_explanation, support_explanation,
+                    lift_explanation, odds_ratio_explanation,
+                    created_ts,
+                ]
             )
             inserted += 1
         except Exception as exc:

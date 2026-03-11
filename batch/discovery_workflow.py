@@ -20,15 +20,28 @@ def write_discovery_cards(sql_client: SqlClient, triggers: list):
         INSERT INTO dbo.agl_discovery_cards (phrase, support, lift, odds_ratio, p_value, fdr, examples_json, status, created_ts)
         VALUES (?, ?, ?, ?, ?, ?, ?, 'CANDIDATE', SYSDATETIME())
         """
-        # Map the richer trigger format from the shared function to the database schema
+        # Map the richer trigger format from the shared function to the database schema.
+        # Support both dict-wrapped metrics ({"value": ..., "explanation": ...}) and bare
+        # floats — the same guard used in webapp/app/db.py insert_discovery_cards().
+        # Without this, trigger.get("support", {}).get("value", 0.0) raises AttributeError
+        # when "support" is a raw float rather than a dict.
+        support_raw = trigger.get("support", 0.0)
+        support_val = float(support_raw.get("value", 0.0) if isinstance(support_raw, dict) else support_raw)
+
+        lift_raw = trigger.get("lift", 0.0)
+        lift_val = float(lift_raw.get("value", 0.0) if isinstance(lift_raw, dict) else lift_raw)
+
+        odds_ratio_raw = trigger.get("odds_ratio", 0.0)
+        odds_ratio_val = float(odds_ratio_raw.get("value", 0.0) if isinstance(odds_ratio_raw, dict) else odds_ratio_raw)
+
         example_phrases = trigger.get("example_phrases", "").split(",")
         examples_json = json.dumps([p.strip() for p in example_phrases if p.strip()])
 
         sql_client.execute(sql, params=[
             trigger.get("description"),
-            float(trigger.get("support", {}).get("value", 0.0)),
-            float(trigger.get("lift", {}).get("value", 0.0)),
-            float(trigger.get("odds_ratio", {}).get("value", 0.0)),
+            support_val,
+            lift_val,
+            odds_ratio_val,
             float(trigger.get("p_value", 0.0)),
             float(trigger.get("fdr", 0.0)),
             examples_json

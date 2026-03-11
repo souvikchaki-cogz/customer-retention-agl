@@ -1,3 +1,4 @@
+import json
 import logging
 from typing import Any, Dict
 import httpx
@@ -63,9 +64,19 @@ STATIC_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "stat
 if os.path.isdir(STATIC_DIR):
     app.mount("/static", StaticFiles(directory=STATIC_DIR, html=False), name="static")
 
+
+def json_loads_safe(s: str):
+    """Parse a JSON string, returning the raw string on failure."""
+    try:
+        return json.loads(s)
+    except Exception:
+        return s
+
+
 @app.get('/api/health')
 async def health():
     return {"status": "ok"}
+
 
 async def _call_function_start(customer_id: str, note: str) -> Dict[str, Any]:
     if FUNCTION_START_URL:
@@ -84,6 +95,7 @@ async def _call_function_start(customer_id: str, note: str) -> Dict[str, Any]:
             raise HTTPException(status_code=502, detail=f"Function start failed: {r.status_code}")
         return r.json()
 
+
 async def _call_status(url: str) -> Dict[str, Any]:
     async with httpx.AsyncClient(timeout=30) as client:
         r = await client.get(url)
@@ -91,6 +103,7 @@ async def _call_status(url: str) -> Dict[str, Any]:
             logger.warning("Status poll failed %s %s", r.status_code, r.text)
             raise HTTPException(status_code=502, detail=f"Status poll failed: {r.status_code}")
         return r.json()
+
 
 @app.post('/api/evaluate', response_model=EvaluateResponse)
 async def evaluate(req: EvaluateRequest):
@@ -129,6 +142,7 @@ async def evaluate(req: EvaluateRequest):
         status=(custom_status or {}).get("status") if custom_status else None,
     )
 
+
 @app.get('/api/evaluate/status/{instance_id}', response_model=StatusResponse)
 async def evaluate_status(instance_id: str):
     url = INSTANCE_STATUS_URLS.get(instance_id)
@@ -148,6 +162,7 @@ async def evaluate_status(instance_id: str):
         progress=custom_status.get("progress"),
         result=custom_status.get("result"),
     )
+
 
 @app.post('/api/predict', response_model=PredictResponse)
 async def predict():
@@ -207,12 +222,19 @@ async def predict():
                     discovery_id=int(row["discovery_id"]),
                     description=str(row["phrase"] or ""),
                     example_phrases=example_phrases_str,
-                    # narrative_explanation is not stored in agl_discovery_cards;
-                    # use a placeholder so the model field is always populated.
-                    narrative_explanation="",
-                    support={"value": float(row.get("support") or 0.0), "explanation": ""},
-                    lift={"value": float(row.get("lift") or 0.0), "explanation": ""},
-                    odds_ratio={"value": float(row.get("odds_ratio") or 0.0), "explanation": ""},
+                    narrative_explanation=str(row.get("narrative_explanation") or ""),
+                    support={
+                        "value": float(row.get("support") or 0.0),
+                        "explanation": str(row.get("support_explanation") or ""),
+                    },
+                    lift={
+                        "value": float(row.get("lift") or 0.0),
+                        "explanation": str(row.get("lift_explanation") or ""),
+                    },
+                    odds_ratio={
+                        "value": float(row.get("odds_ratio") or 0.0),
+                        "explanation": str(row.get("odds_ratio_explanation") or ""),
+                    },
                     p_value=float(row.get("p_value") or 0.0),
                     fdr=float(row.get("fdr") or 0.0),
                 ))
@@ -230,15 +252,6 @@ async def predict():
         raise HTTPException(status_code=500, detail=f"Prediction failed: {e}")
 
 
-def json_loads_safe(s: str):
-    """Parse a JSON string, returning the raw string on failure."""
-    import json
-    try:
-        return json.loads(s)
-    except Exception:
-        return s
-
-
 @app.get('/api/triggers', response_model=ExistingTriggersResponse)
 async def get_existing_triggers(limit: int = 25):
     try:
@@ -249,6 +262,7 @@ async def get_existing_triggers(limit: int = 25):
         logger.exception("Failed to fetch existing triggers")
         raise HTTPException(status_code=500, detail=f"Failed to fetch triggers: {e}")
 
+
 def _derive_severity(support: float, lift: float, odds_ratio: float, p_value: float, fdr: float) -> str:
     if p_value < 0.01 and fdr < 0.02 and (lift >= 2 or odds_ratio >= 3):
         return 'HIGH'
@@ -256,11 +270,13 @@ def _derive_severity(support: float, lift: float, odds_ratio: float, p_value: fl
         return 'MEDIUM'
     return 'LOW'
 
+
 def _build_explanation(req: ApproveTriggerRequest, severity: str) -> str:
     return (
         f"Trigger '{req.phrase}' classified {severity} severity: support={req.support:.1%}, "
         f"lift={req.lift:.2f}, odds_ratio={req.odds_ratio:.2f}, p={req.p_value:.3f}, fdr={req.fdr:.3f}."
     )
+
 
 @app.post('/api/triggers/approve', response_model=ApproveTriggerResponse)
 async def approve_trigger(req: ApproveTriggerRequest):
@@ -320,12 +336,14 @@ async def delete_trigger_endpoint(trigger_id: int):
         logger.exception("Failed to delete trigger id=%s", trigger_id)
         raise HTTPException(status_code=500, detail=f"Failed to delete trigger: {e}")
 
+
 @app.get('/')
 async def root(request: Request):
     index_path = os.path.join(STATIC_DIR, 'index.html')
     if os.path.isfile(index_path):
         return FileResponse(index_path, media_type='text/html')
     return {"message": "Static frontend not found"}
+
 
 @app.get('/finops')
 async def finops_page(request: Request):
