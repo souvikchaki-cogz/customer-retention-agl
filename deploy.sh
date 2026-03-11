@@ -1,65 +1,54 @@
 #!/bin/bash
-# =============================================================================
-# deploy.sh — Deployment for fa-customer-retention-agl aligned with imb-customer-retention, now with User Assigned Managed Identity (UAMI)
-# Uses SQL username/password authentication alongside Managed Identity and specifies ODBC Driver.
-# =============================================================================
+# ==============================================================================
+# AGL Customer Retention — Idempotent Azure Deployment Script
+# ==============================================================================
 
 set -euo pipefail
+set +H
 
-# Robust .env loader: supports values containing '=' and strips surrounding quotes
-if [ -f ".env" ]; then
-  while IFS='=' read -r key value; do
-    case "$key" in ''|[#]*) continue ;; esac
-    raw_value=$(grep -m1 "^${key}=" .env | cut -d'=' -f2-)
-    # Strip surrounding quotes
-    raw_value="${raw_value%\"}"
-    raw_value="${raw_value#\"}"
-    export "${key}=${raw_value}"
-  done < .env
-else
-  echo "❌ .env file not found. Please create one."
+# ── Load .env safely ───────────────────────────────────────────────────────────
+if [ ! -f ".env" ]; then
+  echo "❌ .env file not found. Please create one in the repo root."
   exit 1
 fi
 
-# -- Keep TIMESTAMP and IMAGE_TAG logic --
-TIMESTAMP=$(date +%Y%m%d%H%M%S)
-IMAGE_TAG="${ACR_NAME}.azurecr.io/${CONTAINER_APP_NAME}:${TIMESTAMP}"
+echo "==> Loading .env..."
+while IFS='=' read -r key value; do
+  [[ -z "$key" || "$key" =~ ^# ]] && continue
+  raw_value=$(grep -m1 "^${key}=" .env | cut -d'=' -f2-)
+  raw_value="${raw_value%\"}"
+  raw_value="${raw_value#\"}"
+  raw_value="${raw_value%\'}"
+  raw_value="${raw_value#\'}"
+  export "${key}=${raw_value}"
+done < .env
 
-# -- Keep UAMI_ID as derived --
-UAMI_ID="/subscriptions/${UAMI_SUBSCRIPTION_ID}/resourceGroups/${UAMI_RESOURCE_GROUP}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${UAMI_NAME}"
+# ── Derived variables ─────────────────────────────────────────────────────────
+export TIMESTAMP=$(date +%Y%m%d%H%M%S)
+export ACR_LOGIN_SERVER="${ACR_NAME}.azurecr.io"
+export IMAGE_TAG="${ACR_LOGIN_SERVER}/${CONTAINER_APP_NAME}:${TIMESTAMP}"
+export UAMI_ID="/subscriptions/${UAMI_SUBSCRIPTION_ID}/resourceGroups/${UAMI_RESOURCE_GROUP}/providers/Microsoft.ManagedIdentity/userAssignedIdentities/${UAMI_NAME}"
+export FUNCTION_BASE_URL="https://${FUNC_APP_NAME}.azurewebsites.net"
 
-# ──────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────
-
+# ── Helpers ────────────────────────────────────────────────────────────────────
 log()  { echo ""; echo "──────────────────────────────────────────────"; echo "  ▶  $1"; echo "──────────────────────────────────────────────"; }
 ok()   { echo "  ✅ $1"; }
 info() { echo "  ℹ️  $1"; }
 warn() { echo "  ⚠️  $1"; }
 
-# ──────────────────────────────────────────────────────────────────
-# Destroy Created Resources
-# ──────────────────────────────────────────────────────────────────
+# ── Sanity check ───────────────────────────────────────────────────────────────
+log "Variables loaded"
+info "RESOURCE_GROUP:  $RESOURCE_GROUP"
+info "LOCATION:        $LOCATION"
+info "FUNC_APP_NAME:   $FUNC_APP_NAME"
+info "ACR_NAME:        $ACR_NAME"
+info "AZSQL_SERVER:    $AZSQL_SERVER"
+info "UAMI_ID:         $UAMI_ID"
+info "IMAGE_TAG:       $IMAGE_TAG"
 
-destroy_created_resources() {
-    log "Destroying previously created resources if they exist (safe cleanup)..."
-
-    az functionapp delete --name "$FUNC_APP_NAME" --resource-group "$RESOURCE_GROUP" || true
-    az containerapp delete --name "$CONTAINER_APP_NAME" --resource-group "$RESOURCE_GROUP" --yes || true
-    az storage account delete --name "$STORAGE_NAME" --resource-group "$RESOURCE_GROUP" --yes || true
-    az acr delete --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" --yes || true
-    az monitor app-insights component delete --app "$APP_INSIGHTS_NAME" --resource-group "$RESOURCE_GROUP" || true
-    az monitor log-analytics workspace delete --workspace-name "$LOG_ANALYTICS_WORKSPACE" --resource-group "$RESOURCE_GROUP" --yes || true
-
-    ok "Specific resources cleaned up."
-}
-
-# ──────────────────────────────────────────────────────────────────
-# Prerequisites
-# ──────────────────────────────────────────────────────────────────
-
+# ── Prerequisites ──────────────────────────────────────────────────────────────
 check_prerequisites() {
-    log "Prerequisites"
+    log "Checking prerequisites"
 
     if ! command -v az &>/dev/null; then
         echo "  ❌ 'az' not found. Install: https://learn.microsoft.com/cli/azure/install-azure-cli"
@@ -92,12 +81,124 @@ check_prerequisites() {
     ok "function_app.py found."
 }
 
-# ──────────────────────────────────────────────────────────────────
-# Log Analytics Workspace
-# ──────────────────────────────────────────────────────────────────
+# ── Destroy existing resources ─────────────────────────────────────────────────
+destroy_existing_resources() {
+    log "Destroying existing resources (clean slate before deploy)"
 
+    if az containerapp show --name "$CONTAINER_APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+        info "Deleting Container App: $CONTAINER_APP_NAME"
+        az containerapp delete \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --yes --output none
+        ok "Container App delete issued."
+        info "Waiting for Container App to be fully deprovisioned..."
+        for i in {1..20}; do
+            if ! az containerapp show --name "$CONTAINER_APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+                ok "Container App fully deprovisioned."
+                break
+            fi
+            info "Attempt ${i}/20 — still deprovisioning, waiting 15s..."
+            sleep 15
+        done
+    else
+        info "Container App $CONTAINER_APP_NAME not found — skipping."
+    fi
+
+    if az containerapp env show --name "$CONTAINER_APP_ENV" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+        info "Deleting Container App Environment: $CONTAINER_APP_ENV"
+        az containerapp env delete \
+            --name "$CONTAINER_APP_ENV" \
+            --resource-group "$RESOURCE_GROUP" \
+            --yes --output none
+        ok "Container App Environment delete issued."
+        info "Waiting for Container App Environment to be fully deprovisioned..."
+        for i in {1..20}; do
+            if ! az containerapp env show --name "$CONTAINER_APP_ENV" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+                ok "Container App Environment fully deprovisioned."
+                break
+            fi
+            info "Attempt ${i}/20 — still deprovisioning, waiting 15s..."
+            sleep 15
+        done
+    else
+        info "Container App Environment $CONTAINER_APP_ENV not found — skipping."
+    fi
+
+    if az functionapp show --name "$FUNC_APP_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+        info "Deleting Function App: $FUNC_APP_NAME"
+        az functionapp delete \
+            --name "$FUNC_APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --output none
+        ok "Function App deleted."
+    else
+        info "Function App $FUNC_APP_NAME not found — skipping."
+    fi
+
+    if az functionapp plan show --name "${FUNC_APP_NAME}-plan" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+        info "Deleting Function App Plan: ${FUNC_APP_NAME}-plan"
+        az functionapp plan delete \
+            --name "${FUNC_APP_NAME}-plan" \
+            --resource-group "$RESOURCE_GROUP" \
+            --yes --output none
+        ok "Function App Plan deleted."
+    else
+        info "Function App Plan ${FUNC_APP_NAME}-plan not found — skipping."
+    fi
+
+    if az acr show --name "$ACR_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+        info "Deleting ACR: $ACR_NAME"
+        az acr delete \
+            --name "$ACR_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --yes --output none
+        ok "ACR deleted."
+    else
+        info "ACR $ACR_NAME not found — skipping."
+    fi
+
+    if az storage account show --name "$STORAGE_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+        info "Deleting Storage Account: $STORAGE_NAME"
+        az storage account delete \
+            --name "$STORAGE_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --yes --output none
+        ok "Storage Account deleted."
+    else
+        info "Storage Account $STORAGE_NAME not found — skipping."
+    fi
+
+    if az monitor app-insights component show --app "$APP_INSIGHTS_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+        info "Deleting Application Insights: $APP_INSIGHTS_NAME"
+        az monitor app-insights component delete \
+            --app "$APP_INSIGHTS_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --output none
+        ok "Application Insights deleted."
+    else
+        info "Application Insights $APP_INSIGHTS_NAME not found — skipping."
+    fi
+
+    if az monitor log-analytics workspace show --workspace-name "$LOG_ANALYTICS_WORKSPACE" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
+        info "Deleting Log Analytics Workspace: $LOG_ANALYTICS_WORKSPACE"
+        az monitor log-analytics workspace delete \
+            --workspace-name "$LOG_ANALYTICS_WORKSPACE" \
+            --resource-group "$RESOURCE_GROUP" \
+            --yes --output none
+        ok "Log Analytics Workspace deleted."
+    else
+        info "Log Analytics Workspace $LOG_ANALYTICS_WORKSPACE not found — skipping."
+    fi
+
+    ok "All existing resources cleaned up."
+    info "Waiting 30s for deletions to propagate..."
+    sleep 30
+}
+
+# ── Step 1: Log Analytics Workspace ───────────────────────────────────────────
 deploy_log_analytics() {
-    log "Log Analytics Workspace"
+    log "Step 1: Log Analytics Workspace"
     az monitor log-analytics workspace create \
         --resource-group "$RESOURCE_GROUP" \
         --workspace-name "$LOG_ANALYTICS_WORKSPACE" \
@@ -115,14 +216,12 @@ deploy_log_analytics() {
         --query primarySharedKey -o tsv)
 
     ok "Log Analytics '$LOG_ANALYTICS_WORKSPACE' ready."
+    info "LAW_ID: $LAW_ID"
 }
 
-# ──────────────────────────────────────────────────────────────────
-# Application Insights
-# ──────────────────────────────────────────────────────────────────
-
+# ── Step 2: Application Insights ──────────────────────────────────────────────
 deploy_app_insights() {
-    log "Application Insights"
+    log "Step 2: Application Insights"
     az monitor app-insights component create \
         --app "$APP_INSIGHTS_NAME" \
         --location "$LOCATION" \
@@ -138,12 +237,9 @@ deploy_app_insights() {
     ok "App Insights '$APP_INSIGHTS_NAME' ready."
 }
 
-# ──────────────────────────────────────────────────────────────────
-# Storage Account
-# ──────────────────────────────────────────────────────────────────
-
+# ── Step 3: Storage Account ────────────────────────────────────────────────────
 deploy_storage() {
-    log "Storage Account"
+    log "Step 3: Storage Account"
     az storage account create \
         --name "$STORAGE_NAME" \
         --resource-group "$RESOURCE_GROUP" \
@@ -157,51 +253,12 @@ deploy_storage() {
         --query connectionString -o tsv)
 
     ok "Storage Account '$STORAGE_NAME' ready."
+    info "STORAGE_CONNECTION_STRING captured ✅"
 }
 
-# ──────────────────────────────────────────────────────────────────
-# Azure Container Registry
-# ──────────────────────────────────────────────────────────────────
-
-deploy_acr() {
-    log "Azure Container Registry"
-    az acr create \
-        --name "$ACR_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --location "$LOCATION" \
-        --sku Basic \
-        --admin-enabled true \
-        --output none
-
-    ok "ACR '$ACR_NAME' ready."
-}
-
-# ──────────────────────────────────────────────────────────────────
-# Build Container Image — az acr build (no local Docker)
-# ──────────────────────────────────────────────────────────────────
-
-build_image_acr() {
-    log "Build image via az acr build (no local Docker)"
-    info "Image: $IMAGE_TAG"
-
-    az acr build \
-        --registry "$ACR_NAME" \
-        --resource-group "$RESOURCE_GROUP" \
-        --image "${CONTAINER_APP_NAME}:${TIMESTAMP}" \
-        --file Dockerfile \
-        . \
-        --output none
-
-    ok "Image built and pushed: $IMAGE_TAG"
-}
-
-# ──────────────────────────────────────────────────────────────────
-# Azure Function App — Assign Managed Identity (UAMI) + SQL Settings
-# ──────────────────────────────────────────────────────────────────
-
+# ── Step 4: Function App ───────────────────────────────────────────────────────
 deploy_function_app() {
-
-    log "Function App Plan — Create Elastic Premium (EP1)"
+    log "Step 4: Function App Plan (EP1)"
     az functionapp plan create \
         --name "${FUNC_APP_NAME}-plan" \
         --resource-group "$RESOURCE_GROUP" \
@@ -209,11 +266,9 @@ deploy_function_app() {
         --sku EP1 \
         --is-linux \
         --output none
-
     ok "Function App Plan '${FUNC_APP_NAME}-plan' created."
 
-    log "Function App — Create (with Managed Identity)"
-
+    log "Step 4: Function App — Create (with UAMI)"
     az functionapp create \
         --name "$FUNC_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
@@ -226,12 +281,27 @@ deploy_function_app() {
         --assign-identity "$UAMI_ID" \
         --app-insights "$APP_INSIGHTS_NAME" \
         --output none
+    ok "Function App '$FUNC_APP_NAME' created with UAMI."
 
-    ok "Function App '$FUNC_APP_NAME' (UAMI assigned) created."
-    echo "UAMI_CLIENT_ID is: '$UAMI_CLIENT_ID'"
+    info "Waiting for Function App to reach Running state..."
+    for i in {1..10}; do
+        STATE=$(az functionapp show \
+            --name "$FUNC_APP_NAME" \
+            --resource-group "$RESOURCE_GROUP" \
+            --query "state" -o tsv)
+        info "Attempt ${i}/10 — state: ${STATE}"
+        if [ "$STATE" = "Running" ]; then
+            ok "Function App is Running."
+            break
+        fi
+        if [ "$i" = "10" ]; then
+            echo "❌ Function App did not reach Running state. Exiting."
+            exit 1
+        fi
+        sleep 15
+    done
 
-    log "Function App — Configure settings"
-
+    log "Step 4: Function App — Configure settings"
     az functionapp config appsettings set \
         --name "$FUNC_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
@@ -242,44 +312,55 @@ deploy_function_app() {
             "AZSQL_UID=${AZSQL_UID}" \
             "AZSQL_PWD=${AZSQL_PWD}" \
             "AZSQL_DRIVER=${AZSQL_DRIVER}" \
+            "AZSQL_USE_ENTRA=${AZSQL_USE_ENTRA}" \
             "AZURE_OPENAI_API_ENDPOINT=${AZURE_OPENAI_API_ENDPOINT}" \
             "AZURE_OPENAI_DEPLOYMENTNAME=${AZURE_OPENAI_DEPLOYMENTNAME}" \
             "AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY}" \
+            "AZURE_OPENAI_API_VERSION=2025-01-01-preview" \
             "AzureWebJobsStorage=${STORAGE_CONNECTION_STRING}" \
             "APPLICATIONINSIGHTS_CONNECTION_STRING=${APPINSIGHTS_CONNECTION_STRING}" \
             "FUNCTIONS_EXTENSION_VERSION=~4" \
             "FUNCTIONS_WORKER_RUNTIME=python" \
             "MANAGED_IDENTITY_CLIENT_ID=${UAMI_CLIENT_ID}" \
+            "LOG_LEVEL=INFO" \
+            "REPLAY_QUEUE_NAME=event-replay" \
+            "USE_SQL_RULES=1" \
             "PYTHON_ENABLE_WORKER_EXTENSIONS=1"
-
     ok "Function App settings configured."
 
-    log "Function App — Publish (remote build via Oryx)"
+    info "Waiting 60s for app settings to propagate..."
+    sleep 60
 
-    func azure functionapp publish "$FUNC_APP_NAME" \
+    log "Step 4: Function App — Publish (force clean redeploy)"
+    PUBLISH_OUTPUT=$(func azure functionapp publish "$FUNC_APP_NAME" \
         --python \
-        --build remote \
-        2>&1 | grep -E "(Deployment|successfully|Error|Failed|WARNING|warning|Uploading|Remote build|No functions found|Could not find|Exception)"
-
+        --force 2>&1) || { echo "❌ func publish failed"; echo "$PUBLISH_OUTPUT"; exit 1; }
+    echo "$PUBLISH_OUTPUT" | grep -E "(Deployment|successfully|Error|Failed|WARNING|warning|Uploading|Remote build|No functions found|Could not find|Exception)" || true
     ok "Function App published."
 
-    log "Function App — Retrieve host key"
+    info "Waiting 60s for functions to register..."
+    sleep 60
 
-    FUNCTION_CODE=$(az functionapp keys list \
+    info "Registered functions:"
+    az functionapp function list \
+        --name "$FUNC_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query "[].{Function:name}" \
+        -o table
+
+    log "Step 4: Function App — Retrieve host key"
+    export FUNCTION_CODE=$(az functionapp keys list \
         --name "$FUNC_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --query "functionKeys.default" \
         -o tsv)
 
-    info "Function code to use: $FUNCTION_CODE"
-
     export FUNCTION_BASE_URL="https://${FUNC_APP_NAME}.azurewebsites.net"
-    info "Function base URL: $FUNCTION_BASE_URL"
-
     export FUNCTION_START_URL="${FUNCTION_BASE_URL}/api/http_start_single_analysis?code=${FUNCTION_CODE}"
-    info "Function start URL: $FUNCTION_START_URL"
 
-    # Smoke test — POST should return 202
+    info "FUNCTION_BASE_URL:  $FUNCTION_BASE_URL"
+    info "FUNCTION_START_URL: $FUNCTION_START_URL"
+
     HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
         -X POST \
         -H "Content-Type: application/json" \
@@ -293,12 +374,46 @@ deploy_function_app() {
     fi
 }
 
-# ──────────────────────────────────────────────────────────────────
-# Container App Environment + Container App — Assign Managed Identity
-# ──────────────────────────────────────────────────────────────────
+# ── Step 5: ACR — Create & Remote Build ───────────────────────────────────────
+deploy_acr() {
+    log "Step 5: Azure Container Registry — Create"
+    az acr create \
+        --name "$ACR_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --location "$LOCATION" \
+        --sku Basic \
+        --admin-enabled true \
+        --output none
+    ok "ACR '$ACR_NAME' created."
 
+    log "Step 5: ACR — Remote Build (no local Docker needed)"
+    info "Image: ${IMAGE_TAG}"
+    az acr build \
+        --registry "$ACR_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --image "${CONTAINER_APP_NAME}:${TIMESTAMP}" \
+        --file Dockerfile \
+        .
+    ok "Image built and pushed: ${IMAGE_TAG}"
+
+    log "Step 5: ACR — Retrieve credentials"
+    export ACR_USERNAME=$(az acr credential show \
+        --name "$ACR_NAME" \
+        --query "username" -o tsv)
+
+    export ACR_PASSWORD=$(az acr credential show \
+        --name "$ACR_NAME" \
+        --query "passwords[0].value" -o tsv)
+
+    ok "ACR credentials retrieved."
+    info "ACR_USERNAME:  $ACR_USERNAME"
+    info "ACR_PASSWORD:  ${ACR_PASSWORD:0:5}*****"
+    info "IMAGE_TAG:     $IMAGE_TAG"
+}
+
+# ── Step 6: Container App Environment + Container App ─────────────────────────
 deploy_container_app() {
-    log "Container App — Environment"
+    log "Step 6: Container App Environment"
     az containerapp env create \
         --name "$CONTAINER_APP_ENV" \
         --resource-group "$RESOURCE_GROUP" \
@@ -308,77 +423,64 @@ deploy_container_app() {
         --output none
     ok "Container App Environment '$CONTAINER_APP_ENV' ready."
 
-    log "Container App — Retrieve ACR credentials"
-    ACR_USERNAME=$(az acr credential show \
-        --name "$ACR_NAME" \
-        --query username -o tsv)
-    ACR_PASSWORD=$(az acr credential show \
-        --name "$ACR_NAME" \
-        --query "passwords[0].value" -o tsv)
-    ok "ACR credentials retrieved."
-
-    log "Container App — Deploy (with Managed Identity)"
-    info "UAMI_ID to use: $UAMI_ID"
+    log "Step 6: Container App — Deploy (with UAMI)"
     info "Image: $IMAGE_TAG"
-
     az containerapp create \
         --name "$CONTAINER_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --environment "$CONTAINER_APP_ENV" \
         --image "$IMAGE_TAG" \
-        --registry-server "${ACR_NAME}.azurecr.io" \
+        --registry-server "$ACR_LOGIN_SERVER" \
         --registry-username "$ACR_USERNAME" \
         --registry-password "$ACR_PASSWORD" \
         --target-port 8000 \
         --ingress external \
-        --min-replicas 0 \
-        --max-replicas 10 \
         --cpu 1.0 \
         --memory 2.0Gi \
+        --min-replicas 0 \
+        --max-replicas 10 \
         --user-assigned "$UAMI_ID" \
         --output none
 
+    log "Step 6: Container App — Set secrets"
     az containerapp secret set \
         --name "$CONTAINER_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --secrets \
-            function-start-url="${FUNCTION_START_URL}" \
             azure-openai-api-key="${AZURE_OPENAI_API_KEY}" \
-            azure-openai-deploymentname="${AZURE_OPENAI_DEPLOYMENTNAME}" \
-            azure-openai-endpoint="${AZURE_OPENAI_API_ENDPOINT}" \
-            azure-sql-database="${AZSQL_DB}" \
-            azure-sql-username="${AZSQL_UID}" \
             azure-sql-password="${AZSQL_PWD}" \
-            azure-sql-server="${AZSQL_SERVER}" \
-            azure-sql-driver="${AZSQL_DRIVER}" \
-            managed-identity-client-id="${UAMI_CLIENT_ID}"
+            appinsights-connection-string="${APPINSIGHTS_CONNECTION_STRING}"
+    ok "Secrets set."
 
+    log "Step 6: Container App — Set environment variables"
     az containerapp update \
         --name "$CONTAINER_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --set-env-vars \
-            "AZURE_OPENAI_API_ENDPOINT=secretref:azure-openai-endpoint" \
-            "AZURE_OPENAI_DEPLOYMENTNAME=secretref:azure-openai-deploymentname" \
+            "FUNCTION_START_URL=${FUNCTION_START_URL}" \
+            "FUNCTION_BASE_URL=${FUNCTION_BASE_URL}" \
+            "FUNCTION_CODE=${FUNCTION_CODE}" \
+            "AZSQL_SERVER=${AZSQL_SERVER}" \
+            "AZSQL_DB=${AZSQL_DB}" \
+            "AZSQL_UID=${AZSQL_UID}" \
+            "AZSQL_DRIVER=${AZSQL_DRIVER}" \
+            "AZSQL_USE_ENTRA=${AZSQL_USE_ENTRA}" \
+            "MANAGED_IDENTITY_CLIENT_ID=${UAMI_CLIENT_ID}" \
+            "AZURE_OPENAI_API_ENDPOINT=${AZURE_OPENAI_API_ENDPOINT}" \
+            "AZURE_OPENAI_DEPLOYMENTNAME=${AZURE_OPENAI_DEPLOYMENTNAME}" \
+            "AZURE_OPENAI_API_VERSION=2025-01-01-preview" \
+            "LOG_LEVEL=INFO" \
             "AZURE_OPENAI_API_KEY=secretref:azure-openai-api-key" \
-            "FUNCTION_START_URL=secretref:function-start-url" \
-            "AZURE_SQL_USERNAME=secretref:azure-sql-username" \
-            "AZURE_SQL_PASSWORD=secretref:azure-sql-password" \
-            "AZURE_SQL_DATABASE=secretref:azure-sql-database" \
-            "AZURE_SQL_SERVER=secretref:azure-sql-server" \
-            "AZSQL_DRIVER=secretref:azure-sql-driver" \
-            "MANAGED_IDENTITY_CLIENT_ID=secretref:managed-identity-client-id"
-
-    ok "Container App '$CONTAINER_APP_NAME' (UAMI assigned, env/secrets) deployed."
+            "AZSQL_PWD=secretref:azure-sql-password" \
+            "APPLICATIONINSIGHTS_CONNECTION_STRING=secretref:appinsights-connection-string"
+    ok "Container App '$CONTAINER_APP_NAME' deployed with UAMI, env vars and secrets."
 }
 
-# ──────────────────────────────────────────────────────────────────
-# Verify
-# ──────────────────────────────────────────────────────────────────
-
+# ── Step 7: Verify ─────────────────────────────────────────────────────────────
 verify_deployment() {
-    log "Verify deployment"
+    log "Step 7: Verify deployment"
 
-    CONTAINER_APP_URL=$(az containerapp show \
+    export CONTAINER_APP_URL=$(az containerapp show \
         --name "$CONTAINER_APP_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --query "properties.configuration.ingress.fqdn" -o tsv)
@@ -393,11 +495,17 @@ verify_deployment() {
         warn "Health check failed: $HEALTH"
     fi
 
+    TRIGGERS=$(curl -sf "https://${CONTAINER_APP_URL}/api/triggers" 2>/dev/null || echo "FAILED")
+    if echo "$TRIGGERS" | grep -q '"triggers"'; then
+        ok "Triggers endpoint responding."
+    else
+        warn "Triggers endpoint response: $TRIGGERS"
+    fi
+
     EVAL=$(curl -s -X POST \
         "https://${CONTAINER_APP_URL}/api/evaluate" \
         -H "Content-Type: application/json" \
         -d '{"customer_id":"DEPLOY_TEST","note":"I want to cancel my account"}')
-
     if echo "$EVAL" | grep -q '"instance_id"'; then
         ok "/api/evaluate working — orchestration started."
     else
@@ -405,32 +513,39 @@ verify_deployment() {
         warn "Debug: az containerapp logs show --name $CONTAINER_APP_NAME --resource-group $RESOURCE_GROUP --follow"
     fi
 
+    FUNC_STATE=$(az functionapp show \
+        --name "$FUNC_APP_NAME" \
+        --resource-group "$RESOURCE_GROUP" \
+        --query "state" -o tsv)
+    if [ "$FUNC_STATE" = "Running" ]; then
+        ok "Function App state: Running."
+    else
+        warn "Function App state: $FUNC_STATE (expected Running)"
+    fi
+
     echo ""
     echo "════════════════════════════════════════════════════════"
-    echo "  Deployment complete!"
+    echo "  ✅ Deployment complete!"
     echo ""
     echo "  Web App  →  https://${CONTAINER_APP_URL}/"
     echo "  FinOps   →  https://${CONTAINER_APP_URL}/finops"
     echo "  Health   →  https://${CONTAINER_APP_URL}/api/health"
+    echo "  Triggers →  https://${CONTAINER_APP_URL}/api/triggers"
     echo ""
     echo "  Function →  ${FUNCTION_BASE_URL}"
     echo "  Image    →  ${IMAGE_TAG}"
     echo "════════════════════════════════════════════════════════"
 }
 
-# ──────────────────────────────────────────────────────────────────
-# Main
-# ──────────────────────────────────────────────────────────────────
-
+# ── Main ───────────────────────────────────────────────────────────────────────
 main() {
-    destroy_created_resources
     check_prerequisites
+    destroy_existing_resources
     deploy_log_analytics
     deploy_app_insights
     deploy_storage
-    deploy_acr
-    build_image_acr
     deploy_function_app
+    deploy_acr
     deploy_container_app
     verify_deployment
 }

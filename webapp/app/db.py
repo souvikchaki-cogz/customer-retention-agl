@@ -95,6 +95,63 @@ def fetch_existing_triggers(limit: int = 25) -> List[Dict[str, Any]]:
     return rows
 
 
+# ── NEW FUNCTION ──────────────────────────────────────────────────────────────
+def fetch_existing_rule_phrases() -> List[str]:
+    """
+    Return the human-readable description of every approved text rule currently
+    in the ACTIVE ruleset, so they can be passed to generate_triggers() as
+    exclude_phrases to prevent OpenAI from regenerating already-known triggers.
+
+    Sources (in priority order):
+      1. dbo.agl_rules_library – most recent ACTIVE ruleset_yaml
+      2. sample_rules.yaml fallback (DEFAULT_RULESET_YAML_PATH)
+
+    Returns an empty list on any error so the caller degrades gracefully.
+    """
+    phrases: List[str] = []
+    try:
+        sql_client = SqlClient()
+        result = sql_client.fetch_one(
+            "SELECT TOP 1 ruleset_yaml FROM dbo.agl_rules_library "
+            "WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
+        )
+        ruleset_yaml_str: Optional[str] = (
+            result["ruleset_yaml"] if result and result.get("ruleset_yaml") else None
+        )
+
+        if not ruleset_yaml_str:
+            logger.info(
+                "fetch_existing_rule_phrases: no ACTIVE ruleset in DB, "
+                "falling back to %s", DEFAULT_RULESET_YAML_PATH
+            )
+            ruleset = load_yaml_file(DEFAULT_RULESET_YAML_PATH)
+        else:
+            try:
+                ruleset = yaml.safe_load(ruleset_yaml_str)
+            except yaml.YAMLError as exc:
+                logger.error("fetch_existing_rule_phrases: YAML parse error: %s", exc)
+                return []
+
+        if ruleset and isinstance(ruleset.get("text_rules"), dict):
+            for rule_value in ruleset["text_rules"].values():
+                description = (rule_value or {}).get("description")
+                if description:
+                    phrases.append(str(description))
+            logger.debug(
+                "fetch_existing_rule_phrases: found %d existing phrases", len(phrases)
+            )
+        else:
+            logger.warning(
+                "fetch_existing_rule_phrases: ruleset missing 'text_rules'; "
+                "returning empty exclusion list"
+            )
+    except Exception as exc:
+        logger.error("fetch_existing_rule_phrases: unexpected error: %s", exc)
+
+    return phrases
+# ─────────────────────────────────────────────────────────────────────────────
+
+
 def update_rules_library_with_new_trigger(phrase: str, example_phrases: str, odds_ratio: float) -> bool:
     """
     Insert a new ACTIVE ruleset row in dbo.agl_rules_library with an updated ruleset_yaml

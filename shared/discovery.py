@@ -23,7 +23,18 @@ The themes should be directly related to the following known churn drivers:
 - Contract expiry or end-of-fixed-term switching window.
 
 For each of the 5 themes, you must provide:
-1.  A concise theme name under the key "description".
+1.  A full-sentence description of the specific customer behaviour under the key "description".
+    The sentence must follow this exact style — it should start with a gerund verb (e.g. "Requesting", "Asking", "Expressing", "Mentioning", "Stating")
+    and describe what the customer is saying or doing, as if written by a contact centre analyst.
+    The description MUST be STRICTLY UNDER 55 CHARACTERS including the trailing full stop.
+    Examples of the correct style (all under 55 characters):
+      - "Stating a move out from the property."          (37 chars)
+      - "Expressing concern over a high bill."           (36 chars)
+      - "Asking about switching process or timeframe."   (44 chars)
+      - "Mentioning financial hardship or payment issue." (48 chars)
+      - "Requesting a refund before account closure."     (44 chars)
+    Do NOT use abstract noun-phrase labels like "Life Event Disruption" or "Bill Sensitivity".
+    Do NOT write descriptions longer than 55 characters.
 2.  A single string of representative, comma-separated phrases for that theme under the key "example_phrases".
 3.  Synthetic but realistic statistics (support, lift, odds_ratio, p_value, fdr).
 4.  A unique, business-friendly **narrative explanation** under the key "narrative_explanation".
@@ -35,7 +46,7 @@ Example output format:
 {
   "triggers": [
     {
-      "description": "Move-Out Intent",
+      "description": "Stating a move out from the property.",
       "example_phrases": "final meter read, moving house, selling the property, close my account",
       "support": 120,
       "lift": 4.2,
@@ -54,11 +65,23 @@ Example output format:
 
 Do not include any text outside the JSON object."""
 
+
+def _truncate_description(text: str, max_chars: int = 55) -> str:
+    """Truncate description to max_chars at a word boundary, preserving trailing full stop."""
+    if len(text) <= max_chars:
+        return text
+    # Strip trailing punctuation before truncating
+    stripped = text.rstrip(".")
+    # Truncate at last word boundary within limit (leave room for full stop)
+    truncated = stripped[: max_chars - 1].rsplit(" ", 1)[0]
+    return truncated.rstrip(",") + "."
+
+
 def _fallback_structured() -> List[Dict[str, Any]]:
     """Provides a fallback list of triggers matching the new data contract."""
     base = [
     {
-        "description": "Move-out or property sale intent",
+        "description": "Requesting a refund before account closure.",
         "example_phrases": "final meter read, selling the property, moving house, close my account",
         "narrative_explanation": "Customers requesting final meter reads or mentioning a property sale are near-certain churners. Without a seamless account transfer offer, these customers are lost by default.",
         "support": {"value": 0.18, "explanation": "18% of churned customers showed this behaviour in their final interaction."},
@@ -68,7 +91,7 @@ def _fallback_structured() -> List[Dict[str, Any]]:
         "fdr": 0.0002,
     },
     {
-        "description": "Bill shock leading to price comparison",
+        "description": "Expressing concern over a high bill.",
         "example_phrases": "shopping around, comparing retailers, this bill is too high, Energy Made Easy",
         "narrative_explanation": "A sudden bill increase triggers active comparison behaviour. In Australia, switching energy retailers is low-friction — once comparison starts, retention probability drops sharply without a proactive offer.",
         "support": {"value": 0.22, "explanation": "22% of at-risk customers exhibit bill-shock-driven comparison behaviour."},
@@ -85,7 +108,13 @@ def generate_triggers(prompt: str = PROMPT, exclude_phrases: Optional[List[str]]
     """Call Azure OpenAI, expecting a JSON object with a 'triggers' key."""
     final_prompt = prompt
     if exclude_phrases:
-        final_prompt += "\n\nDo not generate themes or phrases that are already in the following list:\n" + json.dumps(exclude_phrases)
+        final_prompt += (
+            "\n\nThe following triggers already exist in the system. "
+            "Do NOT generate any trigger that is semantically similar to these — "
+            "even if the wording is different. Each new trigger must describe a "
+            "clearly distinct customer behaviour or situation not already covered below:\n"
+            + json.dumps(exclude_phrases, indent=2)
+        )
     try:
         client = get_openai_client()
         deployment = os.getenv("AZURE_OPENAI_DEPLOYMENTNAME")
@@ -154,8 +183,17 @@ def generate_triggers(prompt: str = PROMPT, exclude_phrases: Optional[List[str]]
                 metrics_exp = item.get("metrics_explanation", {})
                 support_count = int(item["support"])
                 support_float = min(support_count / 1000.0, 1.0)
+
+                # Hard guard: truncate description to 55 chars at word boundary
+                description = _truncate_description(str(item["description"]), max_chars=55)
+                if len(description) != len(str(item["description"])):
+                    logger.warning(
+                        "Description truncated from %d to %d chars: %r",
+                        len(str(item["description"])), len(description), description
+                    )
+
                 parsed.append({
-                    "description": str(item["description"]),
+                    "description": description,
                     "example_phrases": str(item["example_phrases"]),
                     "narrative_explanation": str(item["narrative_explanation"]),
                     "support": {

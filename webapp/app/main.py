@@ -24,7 +24,12 @@ from shared.models import (
 )
 
 from shared.discovery import generate_triggers, PROMPT
-from .db import fetch_existing_triggers, delete_trigger, update_rules_library_with_new_trigger
+from .db import (
+    fetch_existing_triggers,
+    fetch_existing_rule_phrases,   # ← NEW import
+    delete_trigger,
+    update_rules_library_with_new_trigger,
+)
 
 # Load environment variables from a .env file if present. This is idempotent and safe.
 load_dotenv()
@@ -142,7 +147,14 @@ async def evaluate_status(instance_id: str):
 async def predict():
     try:
         logger.debug("Predict endpoint invoked")
-        structured_raw = generate_triggers(prompt=PROMPT)
+        # ── FIX: fetch already-approved phrases and exclude them from generation ──
+        existing_phrases = fetch_existing_rule_phrases()
+        logger.debug(
+            "Excluding %d existing rule phrases from trigger generation",
+            len(existing_phrases),
+        )
+        structured_raw = generate_triggers(prompt=PROMPT, exclude_phrases=existing_phrases)
+        # ─────────────────────────────────────────────────────────────────────────
         structured_models = [TriggerStat(**item) for item in structured_raw]
         return PredictResponse(triggers=structured_models)
     except Exception as e:

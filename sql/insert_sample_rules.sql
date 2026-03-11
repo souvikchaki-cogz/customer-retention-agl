@@ -22,9 +22,9 @@ VALUES (
     'ACTIVE',
     GETUTCDATE(),
     'version: "1.0.0"
-confidence_floor: 0.55 # AOAI hit must be >= this confidence
+confidence_floor: 0.55
 evidence_guard:
-  min_chars: 4 # ignore 1-3 char "evidence"
+  min_chars: 4
 weights:
   property_sale_risk: 0.35
   contract_expiry_risk: 0.20
@@ -33,7 +33,7 @@ weights:
 text_rules:
   T1_FINAL_METER_READ:
     id: "T1"
-    description: "Requesting a final meter read or final bill ahead of moving out."
+    description: "Requesting a final meter read or bill before moving out."
     weight: 0.50
     phrase_hints:
       - "final meter read"
@@ -46,7 +46,7 @@ text_rules:
 
   T2_MOVE_OUT_REQUEST:
     id: "T2"
-    description: "Customer explicitly stating they are moving out of the property."
+    description: "Stating a move out from the property."
     weight: 0.55
     phrase_hints:
       - "moving out"
@@ -61,7 +61,7 @@ text_rules:
 
   T3_ACCOUNT_TRANSFER_OR_CLOSURE:
     id: "T3"
-    description: "Asking about transferring, closing, or disconnecting the energy account."
+    description: "Asking about account transfer, closure, or disconnection."
     weight: 0.45
     phrase_hints:
       - "transfer my account"
@@ -75,7 +75,7 @@ text_rules:
 
   T4_CREDIT_REFUND_REQUEST:
     id: "T4"
-    description: "Asking about a credit balance refund, typically preceding account closure."
+    description: "Requesting a credit balance refund before closure."
     weight: 0.35
     phrase_hints:
       - "refund my credit"
@@ -86,7 +86,7 @@ text_rules:
 
   T5_LANDLORD_TENANT_CHANGE:
     id: "T5"
-    description: "Mentioning a change in tenancy, landlord, or property ownership."
+    description: "Mentioning tenancy, landlord, or ownership change."
     weight: 0.40
     phrase_hints:
       - "new tenants moving in"
@@ -99,7 +99,7 @@ text_rules:
 
   T6_BILL_SHOCK_COMPLAINT:
     id: "T6"
-    description: "Customer expressing shock or distress at a higher-than-expected bill."
+    description: "Expressing concern over a high bill."
     weight: 0.35
     phrase_hints:
       - "bill is too high"
@@ -113,7 +113,7 @@ text_rules:
 
   T7_COMPARING_RETAILERS:
     id: "T7"
-    description: "Customer actively comparing AGL against other energy retailers."
+    description: "Comparing AGL with other retailers."
     weight: 0.45
     phrase_hints:
       - "shopping around"
@@ -128,7 +128,7 @@ text_rules:
 
   T8_SWITCHING_PROCESS_ENQUIRY:
     id: "T8"
-    description: "Asking about the process or timeframe for switching to another energy retailer."
+    description: "Asking about switching process or timeframe."
     weight: 0.45
     phrase_hints:
       - "how do I switch"
@@ -141,7 +141,7 @@ text_rules:
 
   T9_PLAN_OR_DISCOUNT_ENQUIRY:
     id: "T9"
-    description: "Asking whether better plans, discounts, or tariffs are available."
+    description: "Inquiring about better plans or discounts."
     weight: 0.25
     phrase_hints:
       - "any better plans"
@@ -154,7 +154,7 @@ text_rules:
 
   T10_HARDSHIP_SWITCH_RISK:
     id: "T10"
-    description: "Customer mentioning financial hardship or inability to pay, a precursor to switching."
+    description: "Mentioning financial hardship or payment difficulty."
     weight: 0.30
     phrase_hints:
       - "can''t afford"
