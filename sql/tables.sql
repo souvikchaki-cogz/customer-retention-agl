@@ -145,23 +145,18 @@ CREATE TABLE [dbo].[agl_lead_cards] (
 
 -- -----------------------------------------------------------------------------
 -- agl_discovery_cards
--- AI-generated candidate churn trigger themes, created by the /api/predict
--- endpoint. Analysts review CANDIDATE entries and APPROVE or REJECT via the
--- webapp. APPROVED entries are merged into the active ruleset in
--- agl_rules_library. REJECTED entries are retained for audit purposes.
---
--- support is FLOAT (normalised proportion in [0, 1]) — not a raw count.
--- p_value is stored so the approve endpoint can re-derive severity without
--- needing the caller to re-supply it.
+-- AI-generated candidate churn trigger themes, created by the batch
+-- discovery workflow (batch/discovery_workflow.py).
+-- Analysts review CANDIDATE entries and APPROVE or REJECT via the webapp.
+-- APPROVED entries are merged into the active ruleset in agl_rules_library.
 -- -----------------------------------------------------------------------------
 CREATE TABLE [dbo].[agl_discovery_cards] (
     [discovery_id]  BIGINT        IDENTITY(1, 1) NOT NULL,
-    [phrase]        NVARCHAR(512)                NULL,       -- Human-readable trigger description (≤55 chars)
-    [support]       FLOAT                        NULL,       -- Normalised proportion of at-risk customers [0, 1]
+    [phrase]        NVARCHAR(512)                NULL,       -- Human-readable trigger description
+    [support]       INT                          NULL,       -- Count of customers exhibiting this behaviour
     [lift]          FLOAT                        NULL,       -- Lift over base churn rate
     [odds_ratio]    FLOAT                        NULL,       -- Odds ratio vs non-exhibiting population
     [fdr]           FLOAT                        NULL,       -- False discovery rate
-    [p_value]       FLOAT                        NULL,       -- Statistical p-value
     [examples_json] NVARCHAR(MAX)                NULL,       -- JSON array of example phrases
     [status]        NVARCHAR(16)                 NOT NULL DEFAULT 'CANDIDATE',  -- 'CANDIDATE' | 'APPROVED' | 'REJECTED'
     [created_ts]    DATETIME2                    NOT NULL,
