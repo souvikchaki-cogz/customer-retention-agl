@@ -15,19 +15,31 @@ at AGL, an Australian electricity and gas retailer.
 Your task is to identify 5 high-level **themes** of customer behaviour that indicate 
 a risk of switching to another energy retailer or closing their account.
 
-The themes should be directly related to the following known churn drivers:
+The following are known churn drivers at AGL, provided as domain context only:
 - Move-out or life events (selling/renting property, moving interstate).
 - Bill shock or sudden cost increase.
 - Active price comparison behaviour (Energy Made Easy, competitor enquiries).
 - Conditional discount or concession removal.
 - Contract expiry or end-of-fixed-term switching window.
 
+These drivers are provided so you understand the business domain — NOT as a list you 
+must generate themes from. Do NOT anchor your 5 themes to these drivers. Instead, think 
+broadly across the full customer lifecycle and identify behaviours that signal churn risk 
+but are NOT already covered by the drivers above. Look for signals such as:
+- Sentiment and tone shifts (e.g. frustration, distrust, dissatisfaction with service quality).
+- Self-service or digital disengagement (e.g. closing online account, unsubscribing from communications).
+- Reactive retention signals (e.g. asking whether AGL will price-match, negotiating to stay).
+- Life stage or usage changes (e.g. going solar, downsizing, vacancy periods).
+- Service quality complaints that precede switching (e.g. repeated billing errors, unresolved disputes).
+
 For each of the 5 themes, you must provide:
 1.  A full-sentence description of the specific customer behaviour under the key "description".
     The sentence must follow this exact style — it should start with a gerund verb (e.g. "Requesting", "Asking", "Expressing", "Mentioning", "Stating")
     and describe what the customer is saying or doing, as if written by a contact centre analyst.
-    The description MUST be STRICTLY UNDER 55 CHARACTERS including the trailing full stop.
-    Examples of the correct style (all under 55 characters):
+    The description MUST be AT MOST 55 CHARACTERS including the trailing full stop.
+    You MUST craft the sentence to fit naturally within 55 characters — do NOT write a longer sentence and rely on it being shortened later.
+    Before finalising each description, count its characters and confirm it is 55 or fewer.
+    Examples of the correct style (all within 55 characters):
       - "Stating a move out from the property."          (37 chars)
       - "Expressing concern over a high bill."           (36 chars)
       - "Asking about switching process or timeframe."   (44 chars)
@@ -39,6 +51,14 @@ For each of the 5 themes, you must provide:
 3.  Synthetic but realistic statistics (support, lift, odds_ratio, p_value, fdr).
 4.  A unique, business-friendly **narrative explanation** under the key "narrative_explanation".
 5.  A metrics_explanation object containing simple, business-friendly explanations for support, lift, and odds_ratio.
+
+Before finalising your list of 5 triggers, you MUST check them against each other.
+Every trigger in your list must be distinct in intent from every other trigger in your
+own list — not just from the existing triggers provided later. Apply the same test you
+apply against existing triggers: if two of your generated triggers describe the same
+broad customer behaviour, emotion, or situation — even if the wording differs — discard
+the weaker or more generic one and replace it with a trigger that covers genuinely
+different ground.
 
 The output must be a JSON object with a single key "triggers", which contains an array of 5 objects.
 
@@ -67,12 +87,16 @@ Do not include any text outside the JSON object."""
 
 
 def _truncate_description(text: str, max_chars: int = 55) -> str:
-    """Truncate description to max_chars at a word boundary, preserving trailing full stop."""
+    """Truncate description to max_chars at a word boundary, preserving trailing full stop.
+
+    This function is retained as a last-resort guard only. It should NOT be reached
+    under normal operation — the prompt instructs the LLM to generate descriptions
+    within the character limit. If this function is invoked and truncation actually
+    occurs, the caller treats the item as non-compliant and rejects it.
+    """
     if len(text) <= max_chars:
         return text
-    # Strip trailing punctuation before truncating
     stripped = text.rstrip(".")
-    # Truncate at last word boundary within limit (leave room for full stop)
     truncated = stripped[: max_chars - 1].rsplit(" ", 1)[0]
     return truncated.rstrip(",") + "."
 
@@ -108,11 +132,30 @@ def generate_triggers(prompt: str = PROMPT, exclude_phrases: Optional[List[str]]
     """Call Azure OpenAI, expecting a JSON object with a 'triggers' key."""
     final_prompt = prompt
     if exclude_phrases:
+        # exclude_phrases contains the human-readable 'description' sentences of all
+        # currently active churn rules (e.g. "Stating a move out from the property.").
+        # Each sentence is a complete description of a customer behaviour category that
+        # is already being detected. The LLM must treat each one as covering not just
+        # its exact wording but also any sub-case, specialisation, or re-framing of
+        # the same underlying customer intent or action.
         final_prompt += (
-            "\n\nThe following triggers already exist in the system. "
-            "Do NOT generate any trigger that is semantically similar to these — "
-            "even if the wording is different. Each new trigger must describe a "
-            "clearly distinct customer behaviour or situation not already covered below:\n"
+            "\n\nThe following are the descriptions of churn trigger categories that already "
+            "exist in the system. Each is a complete sentence describing a specific customer "
+            "behaviour or situation that is already being detected.\n\n"
+            "BEFORE generating each new trigger, you MUST work through ALL of the following "
+            "descriptions one by one and apply this test:\n"
+            "  - Does my new trigger describe the same customer intent, action, or situation "
+            "as this existing one — even if expressed differently?\n"
+            "  - Is my new trigger a more specific version, a sub-case, a specialisation, "
+            "or a re-phrasing of this existing one? For example: 'moving interstate' is a "
+            "sub-case of 'move out from the property'; 'dissatisfied with price increase' is "
+            "a re-phrasing of 'concern over a high bill'; 'property sale closure request' is "
+            "a sub-case of both 'account closure' and 'move out'.\n"
+            "  - If the answer to EITHER question is yes for ANY existing description, "
+            "discard the new trigger entirely and choose a behaviour not covered at all.\n\n"
+            "Each of your 5 new triggers MUST describe a customer behaviour that is "
+            "completely distinct in intent — not a sub-case, not a re-phrasing, not a "
+            "specialisation — from ALL of the following:\n"
             + json.dumps(exclude_phrases, indent=2)
         )
     try:
@@ -184,16 +227,22 @@ def generate_triggers(prompt: str = PROMPT, exclude_phrases: Optional[List[str]]
                 support_count = int(item["support"])
                 support_float = min(support_count / 1000.0, 1.0)
 
-                # Hard guard: truncate description to 55 chars at word boundary
-                description = _truncate_description(str(item["description"]), max_chars=55)
-                if len(description) != len(str(item["description"])):
+                raw_description = str(item["description"])
+
+                # Guard: reject items where the LLM returned a description longer than
+                # 55 characters despite the prompt instruction. _truncate_description is
+                # NOT used to silently fix non-compliant output — a word-chopped description
+                # is semantically worse than no description. Log and skip instead.
+                if len(raw_description) > 55:
                     logger.warning(
-                        "Description truncated from %d to %d chars: %r",
-                        len(str(item["description"])), len(description), description
+                        "Skipping trigger item — description exceeds 55 characters (%d chars): %r. "
+                        "This indicates prompt non-compliance; the item is rejected rather than truncated.",
+                        len(raw_description), raw_description
                     )
+                    continue
 
                 parsed.append({
-                    "description": description,
+                    "description": raw_description,
                     "example_phrases": str(item["example_phrases"]),
                     "narrative_explanation": str(item["narrative_explanation"]),
                     "support": {

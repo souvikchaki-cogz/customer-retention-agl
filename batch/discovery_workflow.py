@@ -42,15 +42,16 @@ def main():
     logging.info("Starting synthetic trigger generation workflow...")
     sql_client = SqlClient()
 
-    # Get existing rules to avoid duplicates AND semantic overlap
+    # Get existing rules to avoid duplicates and semantic overlap.
+    # We extract the human-readable 'description' from each rule (not the YAML key name)
+    # so that the LLM can reason about the *meaning* of existing triggers and avoid
+    # generating anything semantically equivalent, regardless of wording.
     current_ruleset_query = "SELECT TOP 1 ruleset_yaml FROM dbo.agl_rules_library WHERE status = 'ACTIVE' ORDER BY activated_ts DESC"
     current_ruleset_result = sql_client.fetch_one(current_ruleset_query)
     existing_phrases = []
     if current_ruleset_result:
         try:
             existing_rules = yaml.safe_load(current_ruleset_result['ruleset_yaml']) or {}
-            # Extract the human-readable 'description' from each rule so the LLM
-            # can detect semantic overlap, not just exact phrase matching
             for rule_value in existing_rules.get("text_rules", {}).values():
                 desc = rule_value.get("description") if isinstance(rule_value, dict) else None
                 if desc:
@@ -59,7 +60,7 @@ def main():
             logging.error(f"Error parsing existing rules: {e}")
 
     # Generate synthetic triggers
-    logging.info(f"Generating new triggers, excluding {len(existing_phrases)} existing phrases.")
+    logging.info(f"Generating new triggers, excluding {len(existing_phrases)} existing descriptions.")
     new_triggers = generate_triggers(exclude_phrases=existing_phrases)
 
     if not new_triggers:
